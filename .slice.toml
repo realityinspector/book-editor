@@ -1,0 +1,23 @@
+[project]
+name = "book-editor"
+project_type = "python"
+python_version = "3.11"
+framework = "fastapi"
+profile = "full"
+model = "openrouter/google/gemini-2.5-flash"
+thinking = "high"
+test_cmd = "pytest -x --tb=short"
+postgres = true
+deploy_target = "railway"
+
+[agent]
+auto_deps = true
+auto_test_discovery = true
+
+[rate_limits]
+rpm = 30
+per_session_usd = 10.00
+daily_usd = 100.00
+
+[budget]
+action = "warn"
