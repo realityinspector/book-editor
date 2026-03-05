@@ -14,17 +14,9 @@ from book_editor.agents.audience import create_audience_panel
 
 logger = logging.getLogger(__name__)
 
-# Pipeline status tracking (in-memory, could move to DB for persistence)
-_pipeline_status: dict[int, dict] = {}
 
-
-def get_status(book_id: int) -> dict:
-    return _pipeline_status.get(book_id, {"stage": "idle", "progress": 0.0})
-
-
-def _update_status(book_id: int, stage: str, progress: float, detail: str = ""):
-    _pipeline_status[book_id] = {"stage": stage, "progress": progress, "detail": detail}
-    logger.info(f"Pipeline [{book_id}] {stage}: {progress:.0%} - {detail}")
+async def _update_status(book_id: int, stage: str, progress: float, detail: str = ""):
+    await db.update_pipeline_status(book_id, "full", stage, progress, detail)
 
 
 async def run_full_book_pipeline(book_id: int) -> dict:
@@ -46,13 +38,13 @@ async def run_full_book_pipeline(book_id: int) -> dict:
 
     try:
         # ── Stage 1: Editor reads the entire book ──
-        _update_status(book_id, "editor_reading", 0.05, "Editor reading entire book")
+        await _update_status(book_id, "editor_reading", 0.05, "Editor reading entire book")
         editor = EditorAgent(model=settings.editor_model, book_id=book_id)
         assessment = await editor.read_entire_book()
         results["stages"]["editor_assessment"] = assessment
 
         # ── Stage 2: Stylist analyzes voice ──
-        _update_status(book_id, "stylist_analysis", 0.10, "Stylist analyzing writing voice")
+        await _update_status(book_id, "stylist_analysis", 0.10, "Stylist analyzing writing voice")
         stylist = StylistAgent(model=settings.stylist_model, book_id=book_id)
 
         pool = await db.get_pool()
@@ -69,7 +61,7 @@ async def run_full_book_pipeline(book_id: int) -> dict:
         results["stages"]["voice_analysis"] = voice_analysis
 
         # ── Stage 3: Editor + Stylist debate (3 rounds) ──
-        _update_status(book_id, "debate", 0.15, "Editor and Stylist debating book direction")
+        await _update_status(book_id, "debate", 0.15, "Editor and Stylist debating book direction")
         debate_log = []
 
         stylist_position = await stylist.debate_with_editor(json.dumps(assessment))
@@ -79,7 +71,7 @@ async def run_full_book_pipeline(book_id: int) -> dict:
         debate_log.append({"round": 1, "editor": editor_response})
 
         for round_num in range(2, 4):
-            _update_status(book_id, "debate", 0.15 + round_num * 0.02, f"Debate round {round_num}")
+            await _update_status(book_id, "debate", 0.15 + round_num * 0.02, f"Debate round {round_num}")
             stylist_reply = await stylist.debate_with_editor(editor_response)
             debate_log.append({"round": round_num, "stylist": stylist_reply})
 
@@ -93,7 +85,7 @@ async def run_full_book_pipeline(book_id: int) -> dict:
         results["stages"]["style_brief"] = style_brief
 
         # ── Stage 4: Editor generates chapter instructions ──
-        _update_status(book_id, "chapter_instructions", 0.25, "Editor generating chapter instructions")
+        await _update_status(book_id, "chapter_instructions", 0.25, "Editor generating chapter instructions")
         async with pool.acquire() as conn:
             all_chapters = await conn.fetch(
                 """SELECT id, original_index, title, content, is_epilogue, has_attributed_quotes
@@ -114,7 +106,7 @@ async def run_full_book_pipeline(book_id: int) -> dict:
         results["stages"]["chapter_instructions_count"] = len(chapter_instructions)
 
         # ── Stage 5: Worker swarm edits chapters with Judge loop ──
-        _update_status(book_id, "chapter_editing", 0.30, "Worker swarm editing chapters")
+        await _update_status(book_id, "chapter_editing", 0.30, "Worker swarm editing chapters")
         judge = JudgeAgent(model=settings.judge_model, book_id=book_id)
         await judge.load_memory()
 
@@ -133,7 +125,7 @@ async def run_full_book_pipeline(book_id: int) -> dict:
 
                 max_attempts = 3
                 for attempt in range(1, max_attempts + 1):
-                    _update_status(
+                    await _update_status(
                         book_id, "chapter_editing",
                         0.30 + 0.35 * (len(edit_results) / max(len(all_chapters), 1)),
                         f"Editing chapter {ch_record['original_index'] + 1} (attempt {attempt})",
@@ -200,7 +192,7 @@ async def run_full_book_pipeline(book_id: int) -> dict:
         results["stages"]["chapter_edits"] = edit_results
 
         # ── Stage 6: Editor determines chapter order (3 variants) ──
-        _update_status(book_id, "ordering", 0.70, "Editor determining chapter order")
+        await _update_status(book_id, "ordering", 0.70, "Editor determining chapter order")
 
         base_order = await editor.determine_chapter_order()
         results["stages"]["base_chapter_order"] = base_order
@@ -227,14 +219,14 @@ async def run_full_book_pipeline(book_id: int) -> dict:
         results["stages"]["variants"] = [{"variant": i + 1, "order": v} for i, v in enumerate(variants)]
 
         # ── Stage 7: Editor writes variant first chapters ──
-        _update_status(book_id, "first_chapters", 0.75, "Editor writing variant first chapters")
+        await _update_status(book_id, "first_chapters", 0.75, "Editor writing variant first chapters")
         variant_first_chapters = []
         for v_num, variant in enumerate(variants, 1):
             first_ch = await editor.write_variant_first_chapter(v_num, variant)
             variant_first_chapters.append(first_ch)
 
         # ── Stage 8: Assemble 3 draft versions ──
-        _update_status(book_id, "assembly", 0.80, "Assembling draft versions")
+        await _update_status(book_id, "assembly", 0.80, "Assembling draft versions")
         draft_ids = []
         for v_num, (variant, first_ch) in enumerate(zip(variants, variant_first_chapters), 1):
             draft_id = await editor.assemble_draft(v_num, variant)
@@ -259,14 +251,14 @@ async def run_full_book_pipeline(book_id: int) -> dict:
         results["stages"]["draft_ids"] = draft_ids
 
         # ── Stage 9: Audience panel reviews (3 rounds per draft) ──
-        _update_status(book_id, "audience_review", 0.85, "Audience panel reviewing drafts")
+        await _update_status(book_id, "audience_review", 0.85, "Audience panel reviewing drafts")
         audience_panel = create_audience_panel(model=settings.audience_model, book_id=book_id)
         all_feedback = {}
 
         for draft_id in draft_ids:
             all_feedback[draft_id] = []
             for round_num in range(1, 4):
-                _update_status(
+                await _update_status(
                     book_id, "audience_review",
                     0.85 + 0.12 * (draft_ids.index(draft_id) * 3 + round_num) / (len(draft_ids) * 3),
                     f"Draft {draft_id} round {round_num}",
@@ -289,7 +281,7 @@ async def run_full_book_pipeline(book_id: int) -> dict:
         results["stages"]["audience_feedback"] = all_feedback
 
         # ── Stage 10: Final report ──
-        _update_status(book_id, "complete", 1.0, "Pipeline complete")
+        await _update_status(book_id, "complete", 1.0, "Pipeline complete")
 
         # Compute summary scores
         for draft_id, rounds in all_feedback.items():
@@ -307,7 +299,7 @@ async def run_full_book_pipeline(book_id: int) -> dict:
 
     except Exception as e:
         logger.exception(f"Pipeline failed for book {book_id}")
-        _update_status(book_id, "error", 0.0, str(e))
+        await _update_status(book_id, "error", 0.0, str(e))
         results["status"] = "error"
         results["error"] = str(e)
         return results
