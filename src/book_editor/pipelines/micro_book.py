@@ -39,14 +39,22 @@ async def run_micro_book_pipeline(book_id: int) -> dict:
     micro_prompt = prompts["micro_book"]["system_prompt"]
     model = settings.micro_model
 
-    # Build a lightweight chapter list — just titles and a one-line hint
-    chapter_lines = []
-    for ch in chapters:
-        # First sentence or first 150 chars as a hint
-        content_hint = ch["content"][:150].split(".")[0].strip()
-        chapter_lines.append(f"  {ch['original_index'] + 1}. \"{ch['title']}\" — {content_hint}")
+    # Filter out stub chapters (< 50 words) and build content summaries
+    real_chapters = [ch for ch in chapters if len(ch["content"].split()) >= 50]
+    if not real_chapters:
+        real_chapters = chapters  # fallback if all are short
 
-    chapter_list = "\n".join(chapter_lines)
+    # Build chapter list with enough content for the model to understand the book
+    chapter_lines = []
+    for ch in real_chapters:
+        # First 300 chars gives the model real substance
+        content_hint = ch["content"][:300].replace("\n", " ").strip()
+        chapter_lines.append(
+            f"CHAPTER {ch['original_index'] + 1}: \"{ch['title']}\"\n"
+            f"  Begins: {content_hint}..."
+        )
+
+    chapter_list = "\n\n".join(chapter_lines)
 
     messages = [
         {"role": "system", "content": micro_prompt},
@@ -54,12 +62,13 @@ async def run_micro_book_pipeline(book_id: int) -> dict:
             "role": "user",
             "content": (
                 f"Book: \"{book['title']}\" by {book['author']}\n"
-                f"Total chapters: {len(chapters)}\n\n"
-                f"Chapter list:\n{chapter_list}\n\n"
-                f"Now write the complete micro-book. Remember:\n"
-                f"- About 200 words total across all {len(chapters)} chapters\n"
+                f"Total chapters: {len(real_chapters)} (substantial chapters from {len(chapters)} total sections)\n\n"
+                f"Chapter excerpts:\n\n{chapter_list}\n\n"
+                f"Now write the complete micro-book based on the ACTUAL CONTENT above. Remember:\n"
+                f"- About 200 words total across {len(real_chapters)} chapters\n"
                 f"- Each chapter is 1-3 simple sentences at a second-grade reading level\n"
                 f"- Use the format: ## [Chapter Title] followed by the simple sentences\n"
+                f"- Base each micro-chapter on the REAL content excerpted above — do NOT make up topics\n"
                 f"- End with a one-sentence summary of the whole book\n\n"
                 f"Write the micro-book now:"
             ),
