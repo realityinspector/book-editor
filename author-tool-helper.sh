@@ -142,6 +142,13 @@ if domain:
         curl -s "$URL/drafts/$DRAFT_ID" | python3 -m json.tool
         ;;
 
+    delete)
+        BOOK_ID="${2:?Usage: $0 delete <book_id>}"
+        URL="$(get_url)"
+        log "Deleting book $BOOK_ID and all associated data..."
+        curl -s -X DELETE "$URL/books/$BOOK_ID" | python3 -m json.tool
+        ;;
+
     book)
         BOOK_ID="${2:?Usage: $0 book <book_id>}"
         URL="$(get_url)"
