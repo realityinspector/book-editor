@@ -86,6 +86,19 @@ CREATE TABLE IF NOT EXISTS judge_memory (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS pipeline_status (
+    id SERIAL PRIMARY KEY,
+    book_id INT REFERENCES books(id) ON DELETE CASCADE,
+    pipeline TEXT NOT NULL,
+    stage TEXT NOT NULL DEFAULT 'queued',
+    progress FLOAT DEFAULT 0.0,
+    detail TEXT DEFAULT '',
+    error TEXT,
+    started_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_status_book ON pipeline_status(book_id, pipeline);
 CREATE INDEX IF NOT EXISTS idx_chapters_book ON chapters(book_id, original_index);
 CREATE INDEX IF NOT EXISTS idx_revisions_chapter ON chapter_revisions(chapter_id, version);
 CREATE INDEX IF NOT EXISTS idx_interactions_book ON agent_interactions(book_id, created_at);
@@ -116,3 +129,41 @@ async def get_pool() -> asyncpg.Pool:
     if pool is None:
         await init_pool()
     return pool
+
+
+async def update_pipeline_status(
+    book_id: int, pipeline: str, stage: str, progress: float, detail: str = "", error: str | None = None
+):
+    """Upsert pipeline status into the database."""
+    p = await get_pool()
+    async with p.acquire() as conn:
+        existing = await conn.fetchval(
+            "SELECT id FROM pipeline_status WHERE book_id = $1 AND pipeline = $2",
+            book_id, pipeline,
+        )
+        if existing:
+            await conn.execute(
+                """UPDATE pipeline_status
+                   SET stage = $1, progress = $2, detail = $3, error = $4, updated_at = NOW()
+                   WHERE book_id = $5 AND pipeline = $6""",
+                stage, progress, detail, error, book_id, pipeline,
+            )
+        else:
+            await conn.execute(
+                """INSERT INTO pipeline_status (book_id, pipeline, stage, progress, detail, error)
+                   VALUES ($1, $2, $3, $4, $5, $6)""",
+                book_id, pipeline, stage, progress, detail, error,
+            )
+    logger.info(f"Pipeline [{book_id}/{pipeline}] {stage}: {progress:.0%} {detail}" + (f" ERROR: {error}" if error else ""))
+
+
+async def get_pipeline_status(book_id: int) -> list[dict]:
+    """Get all pipeline statuses for a book."""
+    p = await get_pool()
+    async with p.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT pipeline, stage, progress, detail, error, started_at, updated_at
+               FROM pipeline_status WHERE book_id = $1 ORDER BY started_at""",
+            book_id,
+        )
+    return [dict(r) for r in rows]
