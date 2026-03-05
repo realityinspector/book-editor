@@ -12,7 +12,9 @@ RUN pip install --no-cache-dir .
 COPY src/ src/
 COPY agent_system_prompts.json .
 
-RUN useradd -m appuser
+RUN useradd -m appuser && \
+    mkdir -p /app/uploads /app/output && \
+    chown -R appuser:appuser /app/uploads /app/output
 USER appuser
 
 ENV PYTHONPATH=/app/src
