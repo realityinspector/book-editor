@@ -27,14 +27,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Try to set up Logfire if available
+# Try to set up Logfire if available and configured
 try:
     import logfire
     logfire.configure(service_name="book-editor")
     logfire.instrument_asyncpg()
     logger.info("Logfire configured")
-except ImportError:
-    logger.info("Logfire not installed, using standard logging")
+except Exception:
+    logger.info("Logfire not available or not configured, using standard logging")
 
 UPLOAD_DIR = Path("/app/uploads") if os.path.exists("/app") else Path("./uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
