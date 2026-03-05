@@ -164,6 +164,24 @@ async def _run_all(book_id: int, skip_micro: bool):
         logger.exception(f"Full orchestration failed for book {book_id}: {e}")
 
 
+# ── Delete ──
+
+@app.delete("/books/{book_id}")
+async def delete_book(book_id: int):
+    """Delete a book and all its associated data (chapters, revisions, drafts, feedback, interactions, memory)."""
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval("SELECT 1 FROM books WHERE id = $1", book_id)
+        if not exists:
+            raise HTTPException(404, "Book not found")
+        # CASCADE handles chapters, revisions, drafts, feedback via foreign keys
+        # Clean up tables without cascading FKs
+        await conn.execute("DELETE FROM judge_memory WHERE book_id = $1", book_id)
+        await conn.execute("DELETE FROM agent_interactions WHERE book_id = $1", book_id)
+        await conn.execute("DELETE FROM books WHERE id = $1", book_id)
+    return {"status": "deleted", "book_id": book_id}
+
+
 # ── Status & Results ──
 
 @app.get("/books/{book_id}/status")
