@@ -1,0 +1,29 @@
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    database_url: str
+    openrouter_api_key: str
+
+    # OpenRouter base
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+
+    # Model assignments
+    editor_model: str = "google/gemini-2.5-pro"  # 1M context, highest quality
+    stylist_model: str = "google/gemini-2.5-flash"  # 1M context, fast + opinionated
+    judge_model: str = "anthropic/claude-sonnet-4"  # strong reasoning for validation
+    worker_model: str = "google/gemini-2.5-flash"  # fast chapter editing
+    audience_model: str = "google/gemini-2.5-flash"  # roleplay feedback
+    micro_model: str = "meta-llama/llama-3.3-70b-instruct:free"  # free dry-run model
+
+    # Concurrency
+    max_concurrent_workers: int = 5
+
+    # App
+    app_name: str = "book-editor"
+    log_level: str = "INFO"
+
+    model_config = {"env_file": ".env", "extra": "ignore"}
+
+
+settings = Settings()
