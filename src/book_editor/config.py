@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     judge_model: str = "anthropic/claude-sonnet-4"  # strong reasoning for validation
     worker_model: str = "google/gemini-2.5-flash"  # fast chapter editing
     audience_model: str = "google/gemini-2.5-flash"  # roleplay feedback
-    micro_model: str = "meta-llama/llama-3.3-70b-instruct:free"  # free dry-run model
+    micro_model: str = "google/gemini-2.0-flash-001"  # cheapest 1M ctx model ($0.13/M input)
 
     # Concurrency
     max_concurrent_workers: int = 5

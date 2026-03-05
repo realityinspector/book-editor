@@ -24,7 +24,7 @@ def test_settings_defaults():
     """Settings should have sensible defaults when both required vars are set."""
     s = Settings(database_url="postgresql://localhost/test", openrouter_api_key="sk-test")
     assert s.editor_model == "google/gemini-2.5-pro"
-    assert s.micro_model == "meta-llama/llama-3.3-70b-instruct:free"
+    assert s.micro_model == "google/gemini-2.0-flash-001"
     assert s.max_concurrent_workers == 5
     assert s.openrouter_base_url == "https://openrouter.ai/api/v1"
 
