@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import shutil
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from fastapi.responses import JSONResponse
 from book_editor import db
 from book_editor.config import settings
 from book_editor.pipelines.orchestrator import run_pipeline
-from book_editor.pipelines.full_book import get_status, run_full_book_pipeline
+from book_editor.pipelines.full_book import run_full_book_pipeline
 from book_editor.pipelines.micro_book import run_micro_book_pipeline
 from book_editor.epub_parser import ingest_epub
 
@@ -104,17 +105,29 @@ async def start_micro_pipeline(book_id: int):
     if not exists:
         raise HTTPException(404, "Book not found")
 
-    # Run in background
+    await db.update_pipeline_status(book_id, "micro", "queued", 0.0, "Micro pipeline queued")
     asyncio.create_task(_run_micro(book_id))
     return {"status": "started", "book_id": book_id, "pipeline": "micro_book"}
 
 
 async def _run_micro(book_id: int):
     try:
+        await db.update_pipeline_status(book_id, "micro", "running", 0.1, "Calling free model...")
         result = await run_micro_book_pipeline(book_id)
-        logger.info(f"Micro pipeline complete for book {book_id}: {result.get('status')}")
+        if result.get("status") == "complete":
+            await db.update_pipeline_status(
+                book_id, "micro", "complete", 1.0,
+                f"Micro-book done: {result.get('word_count', 0)} words, draft_id={result.get('draft_id')}"
+            )
+        else:
+            await db.update_pipeline_status(
+                book_id, "micro", "failed", 0.0,
+                error=result.get("error", "Unknown error")
+            )
     except Exception as e:
-        logger.exception(f"Micro pipeline failed for book {book_id}: {e}")
+        tb = traceback.format_exc()
+        logger.exception(f"Micro pipeline failed for book {book_id}")
+        await db.update_pipeline_status(book_id, "micro", "FAILED", 0.0, error=f"{e}\n\n{tb}")
 
 
 @app.post("/books/{book_id}/full")
@@ -126,16 +139,31 @@ async def start_full_pipeline(book_id: int):
     if not exists:
         raise HTTPException(404, "Book not found")
 
+    await db.update_pipeline_status(book_id, "full", "queued", 0.0, "Full pipeline queued")
     asyncio.create_task(_run_full(book_id))
     return {"status": "started", "book_id": book_id, "pipeline": "full_book"}
 
 
 async def _run_full(book_id: int):
     try:
+        await db.update_pipeline_status(book_id, "full", "running", 0.05, "Starting full pipeline...")
         result = await run_full_book_pipeline(book_id)
-        logger.info(f"Full pipeline complete for book {book_id}: {result.get('status')}")
+        status = result.get("status", "unknown")
+        if status == "complete":
+            summary = result.get("summary", {})
+            await db.update_pipeline_status(
+                book_id, "full", "complete", 1.0,
+                detail=f"Done. Scores: {json.dumps(summary)}"
+            )
+        else:
+            await db.update_pipeline_status(
+                book_id, "full", "FAILED", 0.0,
+                error=result.get("error", "Pipeline returned non-complete status")
+            )
     except Exception as e:
-        logger.exception(f"Full pipeline failed for book {book_id}: {e}")
+        tb = traceback.format_exc()
+        logger.exception(f"Full pipeline failed for book {book_id}")
+        await db.update_pipeline_status(book_id, "full", "FAILED", 0.0, error=f"{e}\n\n{tb}")
 
 
 @app.post("/books/{book_id}/run-all")
@@ -147,6 +175,7 @@ async def start_full_orchestration(book_id: int, skip_micro: bool = False):
     if not exists:
         raise HTTPException(404, "Book not found")
 
+    await db.update_pipeline_status(book_id, "orchestration", "queued", 0.0, "Full orchestration queued")
     asyncio.create_task(_run_all(book_id, skip_micro))
     return {"status": "started", "book_id": book_id, "pipeline": "full_orchestration", "skip_micro": skip_micro}
 
@@ -154,14 +183,30 @@ async def start_full_orchestration(book_id: int, skip_micro: bool = False):
 async def _run_all(book_id: int, skip_micro: bool):
     try:
         if not skip_micro:
+            await db.update_pipeline_status(book_id, "orchestration", "micro", 0.1, "Running micro dry run...")
             micro = await run_micro_book_pipeline(book_id)
             if micro.get("status") != "complete":
-                logger.error(f"Micro pipeline failed, aborting full run for book {book_id}")
+                await db.update_pipeline_status(
+                    book_id, "orchestration", "FAILED", 0.0,
+                    error=f"Micro dry run failed: {micro.get('error', 'unknown')}"
+                )
                 return
+            await db.update_pipeline_status(book_id, "orchestration", "micro_done", 0.2, "Micro done, starting full...")
+
+        await db.update_pipeline_status(book_id, "orchestration", "full", 0.25, "Running full pipeline...")
         result = await run_full_book_pipeline(book_id)
-        logger.info(f"Full orchestration complete for book {book_id}: {result.get('status')}")
+        status = result.get("status", "unknown")
+        if status == "complete":
+            await db.update_pipeline_status(book_id, "orchestration", "complete", 1.0, "All done")
+        else:
+            await db.update_pipeline_status(
+                book_id, "orchestration", "FAILED", 0.0,
+                error=result.get("error", "Full pipeline returned non-complete status")
+            )
     except Exception as e:
-        logger.exception(f"Full orchestration failed for book {book_id}: {e}")
+        tb = traceback.format_exc()
+        logger.exception(f"Orchestration failed for book {book_id}")
+        await db.update_pipeline_status(book_id, "orchestration", "FAILED", 0.0, error=f"{e}\n\n{tb}")
 
 
 # ── Delete ──
@@ -174,8 +219,7 @@ async def delete_book(book_id: int):
         exists = await conn.fetchval("SELECT 1 FROM books WHERE id = $1", book_id)
         if not exists:
             raise HTTPException(404, "Book not found")
-        # CASCADE handles chapters, revisions, drafts, feedback via foreign keys
-        # Clean up tables without cascading FKs
+        await conn.execute("DELETE FROM pipeline_status WHERE book_id = $1", book_id)
         await conn.execute("DELETE FROM judge_memory WHERE book_id = $1", book_id)
         await conn.execute("DELETE FROM agent_interactions WHERE book_id = $1", book_id)
         await conn.execute("DELETE FROM books WHERE id = $1", book_id)
@@ -186,8 +230,16 @@ async def delete_book(book_id: int):
 
 @app.get("/books/{book_id}/status")
 async def pipeline_status(book_id: int):
-    """Get current pipeline status for a book."""
-    return get_status(book_id)
+    """Get current pipeline status for a book. Shows ALL pipelines with errors."""
+    statuses = await db.get_pipeline_status(book_id)
+    if not statuses:
+        return {"book_id": book_id, "pipelines": [], "summary": "No pipelines started yet"}
+
+    has_error = any(s.get("error") for s in statuses)
+    has_running = any(s["stage"] not in ("complete", "FAILED", "queued") for s in statuses)
+
+    summary = "ERROR — check 'error' fields below" if has_error else "running" if has_running else "idle"
+    return {"book_id": book_id, "pipelines": statuses, "summary": summary}
 
 
 @app.get("/books/{book_id}")
