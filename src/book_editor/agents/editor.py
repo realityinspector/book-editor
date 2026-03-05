@@ -56,7 +56,7 @@ After reading, provide your initial editorial assessment as JSON:
     "target_audience_notes": "who should read this and what do they need"
 }}"""
 
-        assessment = await self.send_json(reading_prompt)
+        assessment = await self.send_json(reading_prompt, max_tokens=8000)
         logger.info(f"Editor assessment complete: {len(assessment.get('structural_problems', []))} problems identified")
         return assessment
 

@@ -69,21 +69,48 @@ async def chat_json(
     temperature: float = 0.4,
     max_tokens: int | None = None,
 ) -> dict:
-    """Chat expecting JSON output. Parses the response."""
-    raw = await chat(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        response_format={"type": "json_object"},
-    )
+    """Chat expecting JSON output. Tries json_object format first, falls back to plain."""
+    # First try with response_format (not all models support it)
+    try:
+        raw = await chat(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+        )
+    except Exception:
+        # Fallback: ask without response_format constraint
+        logger.warning(f"json_object format failed for {model}, retrying without format constraint")
+        raw = await chat(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+    if not raw or not raw.strip():
+        raise ValueError(f"Model {model} returned empty response (0 output tokens). Input may be too large.")
+
     # Strip markdown fences if present
     text = raw.strip()
     if text.startswith("```"):
         lines = text.split("\n")
         lines = [l for l in lines if not l.strip().startswith("```")]
-        text = "\n".join(lines)
-    return json.loads(text)
+        text = "\n".join(lines).strip()
+
+    # Try to find JSON in the response (model may include preamble text)
+    if not text.startswith("{"):
+        import re
+        json_match = re.search(r'\{[\s\S]*\}', text)
+        if json_match:
+            text = json_match.group()
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parse failed. Raw response ({len(raw)} chars): {raw[:500]}")
+        raise ValueError(f"Model returned non-JSON response: {e}. First 200 chars: {raw[:200]}") from e
 
 
 async def chat_stream(
