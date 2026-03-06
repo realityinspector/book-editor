@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}{{ book.title }} — Book Editor{% endblock %}
+
+{% block crumb %}
+<span class="sep">/</span>
+<span>{{ book.title[:40] }}{% if book.title|length > 40 %}...{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<h1>{{ book.title }}</h1>
+<p class="meta">
+    {{ book.author or 'Unknown author' }}
+    &middot; {{ book.total_chapters }} chapters
+    &middot; {{ '{:,}'.format(total_words) }} words
+    {% if book.source_filename %}
+    &middot; {{ book.source_filename }}
+    {% endif %}
+</p>
+<p class="meta" style="opacity: 0.6;">Uploaded {{ fmt(book.created_at) }}</p>
+
+<!-- ── Pipeline Status ── -->
+{% if pipelines %}
+<div class="section-label">Pipeline Status</div>
+{% for p in pipelines %}
+<div class="card">
+    <h3 style="display: flex; align-items: center; gap: 0.5rem;">
+        {{ p.pipeline|title }}
+        {% set s = p.stage %}
+        <span class="tag {% if s == 'complete' %}complete{% elif 'FAIL' in s %}failed{% elif s == 'queued' %}{% else %}running{% endif %}">
+            {{ s }}
+        </span>
+        {% if p.progress and p.progress > 0 and p.progress < 1 %}
+        <span class="meta">{{ (p.progress * 100)|int }}%</span>
+        {% endif %}
+    </h3>
+    {% if p.detail %}
+    <p>{{ p.detail[:150] }}{% if p.detail|length > 150 %}...{% endif %}</p>
+    {% endif %}
+    {% if p.error %}
+    <p style="color: #ff3b30; margin-top: 0.3rem;">{{ p.error[:200] }}{% if p.error|length > 200 %}...{% endif %}</p>
+    {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+
+<!-- ── Drafts ── -->
+<div class="section-label">Drafts</div>
+{% if not drafts %}
+<p class="meta">No drafts assembled yet.</p>
+{% endif %}
+{% for d in drafts %}
+<a href="/browse/draft/{{ d.id }}" class="card-link">
+    <div class="card">
+        <h3>
+            {% if d.version == 0 %}
+                Micro Book
+                <span class="tag">dry run</span>
+            {% else %}
+                Variant {{ d.version }}
+            {% endif %}
+        </h3>
+        <p>
+            {% if d.assembly_notes %}{{ d.assembly_notes }} &middot; {% endif %}
+            ~{{ '{:,}'.format(d.approx_words) }} words
+            &middot; {{ '{:,}'.format(d.char_count or 0) }} chars
+            {% if d.review_count > 0 %}
+            &middot; {{ d.review_count }} review{{ 's' if d.review_count != 1 else '' }}
+            {% if d.avg_score is not none %}
+            &middot; avg {{ d.avg_score }}/10
+            {% endif %}
+            {% endif %}
+        </p>
+        <p style="font-size: 0.7rem; margin-top: 0.2rem; opacity: 0.6;">{{ fmt(d.created_at) }}</p>
+    </div>
+</a>
+{% endfor %}
+
+<!-- ── Original Chapters ── -->
+<div class="section-label">Original Chapters ({{ chapters|length }})</div>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif; font-size: 0.82rem;">
+{% for ch in chapters %}
+<div style="padding: 0.35rem 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+    <span>
+        <span class="meta" style="display: inline-block; width: 2rem; text-align: right; margin-right: 0.5rem;">{{ ch.original_index + 1 }}</span>
+        {{ ch.title or 'Untitled' }}
+        {% if ch.is_epilogue %}<span class="tag" style="margin-left: 0.3rem;">epilogue</span>{% endif %}
+    </span>
+    <span class="meta">{{ '{:,}'.format(ch.word_count) }}</span>
+</div>
+{% endfor %}
+</div>
+
+<!-- ── Agent Log ── -->
+{% if interaction_count > 0 %}
+<div class="section-label">Agent Activity</div>
+<a href="/browse/book/{{ book.id }}/log" class="card-link">
+    <div class="card">
+        <h3>Interaction Log</h3>
+        <p>{{ interaction_count }} agent interaction{{ 's' if interaction_count != 1 else '' }} recorded</p>
+    </div>
+</a>
+{% endif %}
+{% endblock %}
