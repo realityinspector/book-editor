@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     # App
     app_name: str = "book-editor"
     log_level: str = "INFO"
+    access_key: str = ""
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

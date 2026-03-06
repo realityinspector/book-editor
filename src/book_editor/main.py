@@ -18,6 +18,7 @@ from book_editor.pipelines.orchestrator import run_pipeline
 from book_editor.pipelines.full_book import run_full_book_pipeline
 from book_editor.pipelines.micro_book import run_micro_book_pipeline
 from book_editor.epub_parser import ingest_epub
+from book_editor.browser import router as browser_router
 
 # ── Logging ──
 
@@ -56,6 +57,9 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Mount browser UI (serves /, /browse, /browse/*, /auth, /logout)
+app.include_router(browser_router)
 
 
 # ── Health ──

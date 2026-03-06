@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Library — Book Editor{% endblock %}
+
+{% block nav_block %}
+<nav>
+    <div class="crumb"><span style="opacity:0.5;">Library</span></div>
+    <a href="/logout">Exit</a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<h1>Library</h1>
+
+{% if not books %}
+<p class="meta" style="margin-top: 2rem;">No books yet. Upload an .epub via the API to get started.</p>
+{% endif %}
+
+{% for book in books %}
+<a href="/browse/book/{{ book.id }}" class="card-link">
+    <div class="card">
+        <h3>{{ book.title or 'Untitled' }}</h3>
+        <p>
+            {{ book.author or 'Unknown author' }}
+            &middot; {{ book.total_chapters }} chapters
+            &middot; {{ book.draft_count }} draft{{ 's' if book.draft_count != 1 else '' }}
+            {% set st = statuses.get(book.id, {}) %}
+            {% if st.get('full') %}
+                {% set stage = st['full'] %}
+                <span class="tag {% if stage == 'complete' %}complete{% elif 'FAIL' in stage %}failed{% else %}running{% endif %}">
+                    {{ stage }}
+                </span>
+            {% endif %}
+        </p>
+        <p style="font-size: 0.7rem; margin-top: 0.3rem; opacity: 0.6;">{{ fmt(book.created_at) }}</p>
+    </div>
+</a>
+{% endfor %}
+{% endblock %}

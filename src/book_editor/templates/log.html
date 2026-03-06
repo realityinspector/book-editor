@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Agent Log — {{ book.title }}{% endblock %}
+
+{% block crumb %}
+<span class="sep">/</span>
+<a href="/browse/book/{{ book.id }}">{{ book.title[:25] }}{% if book.title|length > 25 %}..{% endif %}</a>
+<span class="sep">/</span>
+<span>Log</span>
+{% endblock %}
+
+{% block content %}
+<h1>Agent Log</h1>
+<p class="meta">
+    {{ book.title }} &middot; {{ interactions|length }} interaction{{ 's' if interactions|length != 1 else '' }}
+</p>
+
+<hr class="divider">
+
+{% if not interactions %}
+<p class="meta">No interactions recorded yet.</p>
+{% endif %}
+
+{% for i in interactions %}
+<div class="log-entry">
+    <div class="log-meta">
+        <strong>{{ i.agent_name }}</strong>
+        <span>{{ i.role }}</span>
+        <span class="tag">{{ i.interaction_type }}</span>
+        <span>{{ fmt(i.created_at) }}</span>
+    </div>
+    <div class="log-content" id="log-{{ loop.index }}">{{ i.content[:2000] }}{% if i.content|length > 2000 %}...{% endif %}</div>
+    {% if i.content|length > 300 %}
+    <button class="expand-btn" onclick="toggleLog({{ loop.index }}, this)">Show more</button>
+    {% endif %}
+</div>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleLog(idx, btn) {
+    const el = document.getElementById('log-' + idx);
+    if (el.classList.contains('expanded')) {
+        el.classList.remove('expanded');
+        btn.textContent = 'Show more';
+    } else {
+        el.classList.add('expanded');
+        btn.textContent = 'Show less';
+    }
+}
+</script>
+{% endblock %}
