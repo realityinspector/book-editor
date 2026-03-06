@@ -29,6 +29,18 @@ def _fmt(dt) -> str:
     return str(dt) if dt else ""
 
 
+def _fmt_short(dt) -> str:
+    if isinstance(dt, datetime):
+        return dt.strftime("%b %d, %Y")
+    return str(dt) if dt else ""
+
+
+def _model_short(model: str) -> str:
+    """Shorten model name for pill display."""
+    # "google/gemini-2.5-pro" -> "gemini-2.5-pro"
+    return model.split("/")[-1] if "/" in model else model
+
+
 # ── Auth ──
 
 
@@ -113,7 +125,7 @@ async def book_detail(request: Request, book_id: int):
 
         drafts_raw = await conn.fetch("""
             SELECT id, version, assembly_notes, created_at, LENGTH(full_text) as char_count
-            FROM book_drafts WHERE book_id = $1 ORDER BY version
+            FROM book_drafts WHERE book_id = $1 ORDER BY created_at DESC
         """, book_id)
 
         fb_summary = {}
@@ -133,8 +145,8 @@ async def book_detail(request: Request, book_id: int):
             "SELECT COUNT(*) FROM agent_interactions WHERE book_id = $1", book_id
         )
 
-    # Process drafts
-    drafts = []
+    # Process drafts and split into groups
+    all_drafts = []
     for d in drafts_raw:
         dd = dict(d)
         dd["approx_words"] = (dd["char_count"] or 0) // 6
@@ -142,19 +154,63 @@ async def book_detail(request: Request, book_id: int):
         scores = [f["overall_score"] for f in fb if f.get("overall_score") is not None]
         dd["review_count"] = len(fb)
         dd["avg_score"] = round(sum(scores) / len(scores), 1) if scores else None
-        drafts.append(dd)
+        all_drafts.append(dd)
+
+    # Split: micro books vs variants, take latest of each version
+    micro_drafts = [d for d in all_drafts if d["version"] == 0]
+    variant_drafts = [d for d in all_drafts if d["version"] > 0]
+
+    # Deduplicate: keep only the latest draft per version number
+    seen_versions = set()
+    latest_variants = []
+    previous_variants = []
+    for d in variant_drafts:  # already sorted by created_at DESC
+        if d["version"] not in seen_versions:
+            seen_versions.add(d["version"])
+            latest_variants.append(d)
+        else:
+            previous_variants.append(d)
+
+    # Sort latest variants by version ascending for display
+    latest_variants.sort(key=lambda d: d["version"])
 
     total_words = sum(ch["word_count"] for ch in chapters)
+
+    # Pipeline status summary
+    pipeline_stage = "idle"
+    for p in pipelines:
+        if "FAIL" in (p.get("stage") or ""):
+            pipeline_stage = "failed"
+            break
+        if p.get("stage") == "complete":
+            pipeline_stage = "complete"
+        elif p.get("stage") not in ("complete", "queued", None):
+            pipeline_stage = "running"
+
+    # Model info
+    models = {
+        "editor": _model_short(settings.editor_model),
+        "stylist": _model_short(settings.stylist_model),
+        "worker": _model_short(settings.worker_model),
+        "audience": _model_short(settings.audience_model),
+        "judge": _model_short(settings.judge_model),
+        "micro": _model_short(settings.micro_model),
+    }
 
     return _tpl.TemplateResponse("book.html", {
         "request": request,
         "book": dict(book),
         "chapters": [dict(c) for c in chapters],
-        "drafts": drafts,
+        "latest_variants": latest_variants,
+        "micro_drafts": micro_drafts,
+        "previous_variants": previous_variants,
         "pipelines": [dict(p) for p in pipelines],
+        "pipeline_stage": pipeline_stage,
         "interaction_count": interaction_count,
         "total_words": total_words,
+        "models": models,
         "fmt": _fmt,
+        "fmt_short": _fmt_short,
     })
 
 
@@ -182,6 +238,22 @@ async def draft_reader(request: Request, draft_id: int):
             FROM audience_feedback WHERE draft_id = $1 ORDER BY round, reviewer_name
         """, draft_id)
 
+        # Get sibling drafts for navigation (same run = latest per version)
+        siblings_raw = await conn.fetch("""
+            SELECT id, version FROM book_drafts
+            WHERE book_id = $1 AND version > 0
+            ORDER BY created_at DESC
+        """, draft["book_id"])
+
+    # Deduplicate siblings to latest per version
+    seen = set()
+    siblings = []
+    for s in siblings_raw:
+        if s["version"] not in seen:
+            seen.add(s["version"])
+            siblings.append(dict(s))
+    siblings.sort(key=lambda s: s["version"])
+
     # Parse feedback JSON
     feedback = []
     for f in feedback_raw:
@@ -193,32 +265,38 @@ async def draft_reader(request: Request, draft_id: int):
                 fd[key] = [fd[key]] if fd[key] else []
         feedback.append(fd)
 
-    text = draft["full_text"] or ""
+    # Group feedback by round
+    feedback_by_round = {}
+    for f in feedback:
+        r = f.get("round", 1)
+        feedback_by_round.setdefault(r, []).append(f)
 
-    # Format chapter_order for display
+    text = draft["full_text"] or ""
     draft_dict = dict(draft)
-    co = draft_dict.get("chapter_order")
-    if co:
-        if isinstance(co, str):
-            try:
-                co = json.loads(co)
-            except json.JSONDecodeError:
-                pass
-        if isinstance(co, (list, dict)):
-            draft_dict["chapter_order_display"] = json.dumps(co, indent=2)
-        else:
-            draft_dict["chapter_order_display"] = str(co)
+
+    # Model info based on draft type
+    if draft_dict["version"] == 0:
+        model_used = _model_short(settings.micro_model)
     else:
-        draft_dict["chapter_order_display"] = None
+        model_used = _model_short(settings.editor_model)
+
+    # Compute avg score
+    all_scores = [f["overall_score"] for f in feedback if f.get("overall_score") is not None]
+    avg_score = round(sum(all_scores) / len(all_scores), 1) if all_scores else None
 
     return _tpl.TemplateResponse("reader.html", {
         "request": request,
         "draft": draft_dict,
         "book": dict(book),
         "feedback": feedback,
+        "feedback_by_round": feedback_by_round,
+        "siblings": siblings,
         "word_count": len(text.split()),
         "char_count": len(text),
+        "model_used": model_used,
+        "avg_score": avg_score,
         "fmt": _fmt,
+        "fmt_short": _fmt_short,
     })
 
 
@@ -239,7 +317,10 @@ async def interaction_log(request: Request, book_id: int):
             return HTMLResponse("<h1>Not found</h1>", status_code=404)
 
         interactions = await conn.fetch("""
-            SELECT agent_name, role, interaction_type, content, created_at
+            SELECT agent_name, role, interaction_type,
+                   LEFT(content, 3000) as content,
+                   LENGTH(content) as full_length,
+                   created_at
             FROM agent_interactions WHERE book_id = $1 ORDER BY created_at ASC
         """, book_id)
 

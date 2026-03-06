@@ -4,101 +4,163 @@
 
 {% block crumb %}
 <span class="sep">/</span>
-<span>{{ book.title[:40] }}{% if book.title|length > 40 %}...{% endif %}</span>
+<span>{{ book.title[:35] }}{% if book.title|length > 35 %}...{% endif %}</span>
 {% endblock %}
 
 {% block content %}
 <h1>{{ book.title }}</h1>
-<p class="meta">
-    {{ book.author or 'Unknown author' }}
-    &middot; {{ book.total_chapters }} chapters
-    &middot; {{ '{:,}'.format(total_words) }} words
-    {% if book.source_filename %}
-    &middot; {{ book.source_filename }}
-    {% endif %}
-</p>
-<p class="meta" style="opacity: 0.6;">Uploaded {{ fmt(book.created_at) }}</p>
+<p class="subtitle">{{ book.author or 'Unknown author' }}</p>
 
-<!-- ── Pipeline Status ── -->
-{% if pipelines %}
-<div class="section-label">Pipeline Status</div>
-{% for p in pipelines %}
-<div class="card">
-    <h3 style="display: flex; align-items: center; gap: 0.5rem;">
-        {{ p.pipeline|title }}
-        {% set s = p.stage %}
-        <span class="tag {% if s == 'complete' %}complete{% elif 'FAIL' in s %}failed{% elif s == 'queued' %}{% else %}running{% endif %}">
-            {{ s }}
-        </span>
-        {% if p.progress and p.progress > 0 and p.progress < 1 %}
-        <span class="meta">{{ (p.progress * 100)|int }}%</span>
-        {% endif %}
-    </h3>
-    {% if p.detail %}
-    <p>{{ p.detail[:150] }}{% if p.detail|length > 150 %}...{% endif %}</p>
-    {% endif %}
-    {% if p.error %}
-    <p style="color: #ff3b30; margin-top: 0.3rem;">{{ p.error[:200] }}{% if p.error|length > 200 %}...{% endif %}</p>
-    {% endif %}
+<div class="pills">
+    <span class="pill">{{ book.total_chapters }} chapters</span>
+    <span class="pill words">{{ '{:,}'.format(total_words) }} words</span>
+    <span class="pill status-{{ pipeline_stage }}">{{ pipeline_stage }}</span>
+    <span class="pill">{{ fmt_short(book.created_at) }}</span>
 </div>
-{% endfor %}
-{% endif %}
 
-<!-- ── Drafts ── -->
-<div class="section-label">Drafts</div>
-{% if not drafts %}
-<p class="meta">No drafts assembled yet.</p>
-{% endif %}
-{% for d in drafts %}
+<!-- ── Read Variants ── -->
+{% if latest_variants %}
+<div class="section-label">Read</div>
+
+{% for d in latest_variants %}
 <a href="/browse/draft/{{ d.id }}" class="card-link">
     <div class="card">
-        <h3>
-            {% if d.version == 0 %}
-                Micro Book
-                <span class="tag">dry run</span>
-            {% else %}
-                Variant {{ d.version }}
-            {% endif %}
-        </h3>
-        <p>
-            {% if d.assembly_notes %}{{ d.assembly_notes }} &middot; {% endif %}
-            ~{{ '{:,}'.format(d.approx_words) }} words
-            &middot; {{ '{:,}'.format(d.char_count or 0) }} chars
-            {% if d.review_count > 0 %}
-            &middot; {{ d.review_count }} review{{ 's' if d.review_count != 1 else '' }}
+        <h3>Variant {{ d.version }}</h3>
+        <div class="pills" style="margin: 0.35rem 0 0.15rem;">
+            <span class="pill words">~{{ '{:,}'.format(d.approx_words) }} words</span>
             {% if d.avg_score is not none %}
-            &middot; avg {{ d.avg_score }}/10
+            <span class="pill score">{{ d.avg_score }}/10 avg</span>
             {% endif %}
+            {% if d.review_count > 0 %}
+            <span class="pill">{{ d.review_count }} reviews</span>
             {% endif %}
-        </p>
-        <p style="font-size: 0.7rem; margin-top: 0.2rem; opacity: 0.6;">{{ fmt(d.created_at) }}</p>
+            <span class="pill model">{{ models.editor }}</span>
+        </div>
+        <p class="card-sub">{{ fmt_short(d.created_at) }}{% if d.assembly_notes %} · {{ d.assembly_notes }}{% endif %}</p>
     </div>
 </a>
 {% endfor %}
+{% endif %}
 
-<!-- ── Original Chapters ── -->
-<div class="section-label">Original Chapters ({{ chapters|length }})</div>
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif; font-size: 0.82rem;">
-{% for ch in chapters %}
-<div style="padding: 0.35rem 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-    <span>
-        <span class="meta" style="display: inline-block; width: 2rem; text-align: right; margin-right: 0.5rem;">{{ ch.original_index + 1 }}</span>
-        {{ ch.title or 'Untitled' }}
-        {% if ch.is_epilogue %}<span class="tag" style="margin-left: 0.3rem;">epilogue</span>{% endif %}
-    </span>
-    <span class="meta">{{ '{:,}'.format(ch.word_count) }}</span>
+<!-- ── Micro Book ── -->
+{% if micro_drafts %}
+<div class="section-label">Dry Run</div>
+{% set m = micro_drafts[0] %}
+<a href="/browse/draft/{{ m.id }}" class="card-link">
+    <div class="card">
+        <h3>Micro Book</h3>
+        <div class="pills" style="margin: 0.35rem 0 0.15rem;">
+            <span class="pill words">~{{ '{:,}'.format(m.approx_words) }} words</span>
+            <span class="pill model">{{ models.micro }}</span>
+        </div>
+        <p class="card-sub">{{ fmt_short(m.created_at) }} · Children's-book-level summary</p>
+    </div>
+</a>
+{% endif %}
+
+<!-- ── Previous Runs (collapsed) ── -->
+{% if previous_variants %}
+<div class="section-label">Previous Runs</div>
+<button class="collapsible-toggle" onclick="toggleCollapsible(this)">
+    <span class="arrow">&#9654;</span>
+    {{ previous_variants|length }} earlier draft{{ 's' if previous_variants|length != 1 else '' }}
+</button>
+<div class="collapsible-content">
+{% for d in previous_variants %}
+<a href="/browse/draft/{{ d.id }}" class="card-link">
+    <div class="card">
+        <h3>Variant {{ d.version }} <span class="pill">earlier run</span></h3>
+        <div class="pills" style="margin: 0.35rem 0 0;">
+            <span class="pill words">~{{ '{:,}'.format(d.approx_words) }} words</span>
+            {% if d.avg_score is not none %}<span class="pill score">{{ d.avg_score }}/10</span>{% endif %}
+        </div>
+        <p class="card-sub">{{ fmt_short(d.created_at) }}</p>
+    </div>
+</a>
+{% endfor %}
+</div>
+{% endif %}
+
+<!-- ── Pipeline Detail (collapsed) ── -->
+{% if pipelines %}
+<div class="section-label">Pipeline</div>
+<button class="collapsible-toggle" onclick="toggleCollapsible(this)">
+    <span class="arrow">&#9654;</span>
+    {{ pipelines|length }} pipeline{{ 's' if pipelines|length != 1 else '' }}
+</button>
+<div class="collapsible-content">
+{% for p in pipelines %}
+<div class="card">
+    <h3 style="display: flex; align-items: center; gap: 0.4rem;">
+        {{ p.pipeline|title }}
+        {% set s = p.stage %}
+        <span class="pill {% if s == 'complete' %}status-complete{% elif 'FAIL' in s %}status-failed{% else %}status-running{% endif %}">{{ s }}</span>
+    </h3>
+    {% if p.detail %}<p class="card-sub">{{ p.detail[:120] }}</p>{% endif %}
+    {% if p.error %}<p class="card-sub" style="color: #d32f2f; margin-top: 0.2rem;">{{ p.error[:200] }}</p>{% endif %}
 </div>
 {% endfor %}
+</div>
+{% endif %}
+
+<!-- ── Source Chapters (collapsed) ── -->
+<div class="section-label">Source Material</div>
+<button class="collapsible-toggle" onclick="toggleCollapsible(this)">
+    <span class="arrow">&#9654;</span>
+    {{ chapters|length }} original chapters · {{ '{:,}'.format(total_words) }} words
+</button>
+<div class="collapsible-content">
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif; font-size: 0.8rem; margin-top: 0.5rem;">
+{% for ch in chapters %}
+<div style="padding: 0.3rem 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+    <span>
+        <span style="display: inline-block; width: 1.8rem; text-align: right; margin-right: 0.4rem; color: var(--secondary);">{{ ch.original_index + 1 }}</span>
+        {{ ch.title or 'Untitled' }}
+        {% if ch.is_epilogue %}<span class="pill" style="margin-left: 0.3rem;">epilogue</span>{% endif %}
+    </span>
+    <span style="color: var(--secondary); font-size: 0.72rem;">{{ '{:,}'.format(ch.word_count) }}</span>
+</div>
+{% endfor %}
+</div>
 </div>
 
 <!-- ── Agent Log ── -->
 {% if interaction_count > 0 %}
-<div class="section-label">Agent Activity</div>
+<div class="section-label">Process</div>
 <a href="/browse/book/{{ book.id }}/log" class="card-link">
     <div class="card">
-        <h3>Interaction Log</h3>
-        <p>{{ interaction_count }} agent interaction{{ 's' if interaction_count != 1 else '' }} recorded</p>
+        <h3>Agent Interaction Log</h3>
+        <div class="pills" style="margin: 0.3rem 0 0;">
+            <span class="pill">{{ interaction_count }} interactions</span>
+            <span class="pill model">{{ models.editor }}</span>
+            <span class="pill model">{{ models.stylist }}</span>
+            <span class="pill model">{{ models.judge }}</span>
+        </div>
     </div>
 </a>
 {% endif %}
+
+<!-- ── Models Used ── -->
+<div class="section-label">Models</div>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif; font-size: 0.78rem; color: var(--secondary);">
+    <div class="pills">
+        <span class="pill model">editor: {{ models.editor }}</span>
+        <span class="pill model">stylist: {{ models.stylist }}</span>
+        <span class="pill model">judge: {{ models.judge }}</span>
+        <span class="pill model">worker: {{ models.worker }}</span>
+        <span class="pill model">audience: {{ models.audience }}</span>
+        <span class="pill model">micro: {{ models.micro }}</span>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleCollapsible(btn) {
+    btn.classList.toggle('open');
+    const content = btn.nextElementSibling;
+    content.classList.toggle('open');
+}
+</script>
 {% endblock %}

@@ -4,7 +4,7 @@
 
 {% block crumb %}
 <span class="sep">/</span>
-<a href="/browse/book/{{ book.id }}">{{ book.title[:25] }}{% if book.title|length > 25 %}..{% endif %}</a>
+<a href="/browse/book/{{ book.id }}">{{ book.title[:22] }}{% if book.title|length > 22 %}..{% endif %}</a>
 <span class="sep">/</span>
 <span>{% if draft.version == 0 %}Micro{% else %}V{{ draft.version }}{% endif %}</span>
 {% endblock %}
@@ -14,69 +14,85 @@
 {% endblock %}
 
 {% block content %}
-<h1>{% if draft.version == 0 %}Micro Book{% else %}Variant {{ draft.version }}{% endif %}</h1>
-<p class="meta">
-    {{ book.title }} &middot; {{ book.author or '' }}<br>
-    {{ '{:,}'.format(word_count) }} words &middot; {{ '{:,}'.format(char_count) }} characters
-</p>
-<p class="meta" style="opacity: 0.6;">
-    {{ fmt(draft.created_at) }}
-    {% if draft.assembly_notes %} &middot; {{ draft.assembly_notes }}{% endif %}
+<!-- ── Title + Pills ── -->
+<h1>{% if draft.version == 0 %}Micro Book{% else %}{{ book.title }}{% endif %}</h1>
+<p class="subtitle">
+    {% if draft.version > 0 %}Variant {{ draft.version }} · {% endif %}
+    {{ book.author }}
 </p>
 
-<hr class="divider">
-
-<div class="prose" id="draft-content">
-    <p class="meta">Loading...</p>
+<div class="pills">
+    {% if draft.version > 0 %}<span class="pill version">V{{ draft.version }}</span>{% else %}<span class="pill version">Micro</span>{% endif %}
+    <span class="pill words">{{ '{:,}'.format(word_count) }} words</span>
+    <span class="pill">{{ '{:,}'.format(char_count) }} chars</span>
+    <span class="pill model">{{ model_used }}</span>
+    {% if avg_score is not none %}<span class="pill score">{{ avg_score }}/10 avg</span>{% endif %}
+    {% if feedback %}<span class="pill">{{ feedback|length }} reviews</span>{% endif %}
+    <span class="pill">{{ fmt_short(draft.created_at) }}</span>
 </div>
 
-{% if feedback %}
-<hr class="divider">
-<div class="section-label">Audience Reviews ({{ feedback|length }})</div>
+{% if draft.assembly_notes %}
+<p class="subtitle" style="margin-top: 0.3rem;">{{ draft.assembly_notes }}</p>
+{% endif %}
 
-{% for f in feedback %}
+<!-- ── Variant Navigation ── -->
+{% if siblings|length > 1 %}
+<div class="variant-nav">
+    {% for s in siblings %}
+    <a href="/browse/draft/{{ s.id }}" {% if s.id == draft.id %}class="active"{% endif %}>V{{ s.version }}</a>
+    {% endfor %}
+</div>
+{% endif %}
+
+<hr class="divider">
+
+<!-- ── Reading Content ── -->
+<div class="prose" id="draft-content">
+    <p class="subtitle">Loading content...</p>
+</div>
+
+<!-- ── Audience Reviews ── -->
+{% if feedback_by_round %}
+<hr class="divider">
+<div class="section-label">Audience Reviews</div>
+
+{% for round_num in feedback_by_round|sort %}
+{% set round_feedback = feedback_by_round[round_num] %}
+{% if feedback_by_round|length > 1 %}
+<div class="section-label" style="margin-top: 1.5rem; font-size: 0.6rem; color: var(--secondary);">Round {{ round_num }}</div>
+{% endif %}
+
+{% for f in round_feedback %}
 <div class="fb-card">
     <div class="fb-header">
         <h4>
             {{ f.reviewer_name }}
-            <span class="tag" style="margin-left: 0.3rem;">Round {{ f.round }}</span>
+            <span class="pill" style="margin-left: 0.3rem;">Rd {{ f.round }}</span>
         </h4>
         {% if f.overall_score is not none %}
         <span class="score">{{ f.overall_score }}/10</span>
         {% endif %}
     </div>
     {% if f.reviewer_persona %}
-    <p class="fb-persona">{{ f.reviewer_persona[:120] }}{% if f.reviewer_persona|length > 120 %}...{% endif %}</p>
+    <p class="fb-persona">{{ f.reviewer_persona[:150] }}</p>
     {% endif %}
     {% if f.positive_feedback %}
     <div class="fb-section">
         <h5>Strengths</h5>
-        <ul>
-        {% for item in f.positive_feedback %}
-            <li>{{ item }}</li>
-        {% endfor %}
-        </ul>
+        <ul>{% for item in f.positive_feedback %}<li>{{ item }}</li>{% endfor %}</ul>
     </div>
     {% endif %}
     {% if f.critical_feedback %}
     <div class="fb-section">
-        <h5>Areas for Improvement</h5>
-        <ul>
-        {% for item in f.critical_feedback %}
-            <li>{{ item }}</li>
-        {% endfor %}
-        </ul>
+        <h5>Needs Work</h5>
+        <ul>{% for item in f.critical_feedback %}<li>{{ item }}</li>{% endfor %}</ul>
     </div>
     {% endif %}
 </div>
 {% endfor %}
+{% endfor %}
 {% endif %}
 
-{% if draft.chapter_order_display %}
-<hr class="divider">
-<div class="section-label">Chapter Order Metadata</div>
-<pre class="meta" style="white-space: pre-wrap; font-size: 0.7rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-x: auto;">{{ draft.chapter_order_display }}</pre>
-{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -84,9 +100,10 @@
     const raw = {{ draft.full_text | tojson }};
     const el = document.getElementById('draft-content');
     if (raw && raw.trim()) {
+        marked.setOptions({ breaks: false, gfm: true });
         el.innerHTML = marked.parse(raw);
     } else {
-        el.innerHTML = '<p class="meta">No content in this draft.</p>';
+        el.innerHTML = '<p class="subtitle">No content in this draft.</p>';
     }
 </script>
 {% endblock %}
