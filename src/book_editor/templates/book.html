@@ -58,6 +58,38 @@
 </a>
 {% endif %}
 
+<!-- ── Sharing ── -->
+{% if is_owner %}
+<div class="section-label">Sharing</div>
+
+{% if shares %}
+{% for s in shares %}
+<div class="card" id="share-{{ s.id }}" style="display:flex;justify-content:space-between;align-items:center;padding:0.7rem 1rem;">
+    <div>
+        <span style="font-size:0.82rem;font-weight:500;" class="sans">{{ s.display_name or s.username }}</span>
+        <span class="pill" style="margin-left:0.3rem;">@{{ s.username }}</span>
+        <span class="pill">{{ s.permission }}</span>
+    </div>
+    <button class="btn-delete" onclick="removeShare({{ book.id }}, {{ s.id }})">Remove</button>
+</div>
+{% endfor %}
+{% endif %}
+
+<div class="card" style="padding:0.8rem 1rem;">
+    <div style="display:flex;gap:0.4rem;align-items:center;" class="sans">
+        <input type="text" id="share-username" placeholder="Username to share with"
+               style="flex:1;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:6px;font-size:0.78rem;font-family:inherit;">
+        <select id="share-permission" style="padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-size:0.78rem;font-family:inherit;">
+            <option value="read">Read</option>
+            <option value="write">Write</option>
+        </select>
+        <button onclick="shareBook()" style="padding:0.4rem 0.8rem;background:#007aff;color:#fff;border:none;border-radius:6px;font-size:0.72rem;font-weight:600;cursor:pointer;font-family:inherit;">Share</button>
+    </div>
+    <div id="share-error" style="font-size:0.72rem;color:#ff3b30;margin-top:0.3rem;display:none;"></div>
+    <div id="share-success" style="font-size:0.72rem;color:#155724;margin-top:0.3rem;display:none;"></div>
+</div>
+{% endif %}
+
 <!-- ── Previous Runs (collapsed) ── -->
 {% if previous_variants %}
 <div class="section-label">Previous Runs</div>
@@ -161,6 +193,41 @@ function toggleCollapsible(btn) {
     btn.classList.toggle('open');
     const content = btn.nextElementSibling;
     content.classList.toggle('open');
+}
+
+async function shareBook() {
+    const username = document.getElementById('share-username').value.trim();
+    const permission = document.getElementById('share-permission').value;
+    const errEl = document.getElementById('share-error');
+    const okEl = document.getElementById('share-success');
+    errEl.style.display = 'none';
+    okEl.style.display = 'none';
+
+    if (!username) { errEl.textContent = 'Enter a username'; errEl.style.display = 'block'; return; }
+
+    const resp = await fetch('/api/books/{{ book.id }}/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, permission }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+        errEl.textContent = data.error || 'Failed to share';
+        errEl.style.display = 'block';
+        return;
+    }
+    okEl.textContent = 'Shared with ' + data.shared_with.display_name + ' (' + permission + ')';
+    okEl.style.display = 'block';
+    document.getElementById('share-username').value = '';
+    setTimeout(() => location.reload(), 800);
+}
+
+async function removeShare(bookId, shareId) {
+    if (!confirm('Remove this share?')) return;
+    const resp = await fetch('/api/books/' + bookId + '/share/' + shareId, { method: 'DELETE' });
+    if (resp.ok) {
+        document.getElementById('share-' + shareId).remove();
+    }
 }
 </script>
 {% endblock %}

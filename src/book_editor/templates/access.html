@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Access — Book Editor</title>
+    <title>{% if mode == 'register' %}Register{% else %}Sign In{% endif %} — Book Editor</title>
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -19,7 +19,7 @@
         .gate {
             text-align: center;
             width: 100%;
-            max-width: 300px;
+            max-width: 320px;
             padding: 0 1.5rem;
         }
         .gate h1 {
@@ -28,27 +28,27 @@
             letter-spacing: 0.12em;
             text-transform: uppercase;
             color: #6e6e73;
-            margin-bottom: 2.5rem;
+            margin-bottom: 2rem;
         }
+        .gate input[type="text"],
         .gate input[type="password"] {
             width: 100%;
             padding: 0.7rem 1rem;
             border: 1px solid #e5e5ea;
             border-radius: 8px;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             font-family: inherit;
             background: #fff;
             text-align: center;
             outline: none;
             transition: border-color 0.2s;
+            margin-bottom: 0.5rem;
         }
-        .gate input[type="password"]:focus {
-            border-color: #1d1d1f;
-        }
+        .gate input:focus { border-color: #1d1d1f; }
         .gate button {
             width: 100%;
             padding: 0.7rem;
-            margin-top: 0.6rem;
+            margin-top: 0.3rem;
             border: none;
             border-radius: 8px;
             background: #1d1d1f;
@@ -63,18 +63,44 @@
         .error {
             color: #ff3b30;
             font-size: 0.78rem;
-            margin-top: 1rem;
+            margin-top: 0.8rem;
         }
+        .switch {
+            margin-top: 1.5rem;
+            font-size: 0.78rem;
+            color: #86868b;
+        }
+        .switch a {
+            color: #007aff;
+            text-decoration: none;
+        }
+        .switch a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
-    <form class="gate" method="post" action="/auth">
+    {% if mode == 'register' %}
+    <form class="gate" method="post" action="/register">
         <h1>Book Editor</h1>
-        <input type="password" name="key" placeholder="Access key" autofocus required>
-        <button type="submit">Continue</button>
+        <input type="text" name="username" placeholder="Username" autofocus required>
+        <input type="text" name="display_name" placeholder="Display name (optional)">
+        <input type="password" name="password" placeholder="Password" required>
+        <button type="submit">Create Account</button>
         {% if error %}
         <p class="error">{{ error }}</p>
         {% endif %}
+        <p class="switch">Already have an account? <a href="/">Sign in</a></p>
     </form>
+    {% else %}
+    <form class="gate" method="post" action="/auth">
+        <h1>Book Editor</h1>
+        <input type="text" name="username" placeholder="Username" autofocus required>
+        <input type="password" name="password" placeholder="Password" required>
+        <button type="submit">Sign In</button>
+        {% if error %}
+        <p class="error">{{ error }}</p>
+        {% endif %}
+        <p class="switch">Need an account? <a href="/register">Register</a></p>
+    </form>
+    {% endif %}
 </body>
 </html>
