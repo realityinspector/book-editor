@@ -13,26 +13,25 @@
 <h1>Library</h1>
 
 {% if not books %}
-<p class="meta" style="margin-top: 2rem;">No books yet. Upload an .epub via the API to get started.</p>
+<p class="subtitle" style="margin-top: 2rem;">No books yet. Upload an .epub via the API to get started.</p>
 {% endif %}
 
 {% for book in books %}
 <a href="/browse/book/{{ book.id }}" class="card-link">
     <div class="card">
         <h3>{{ book.title or 'Untitled' }}</h3>
-        <p>
-            {{ book.author or 'Unknown author' }}
-            &middot; {{ book.total_chapters }} chapters
-            &middot; {{ book.draft_count }} draft{{ 's' if book.draft_count != 1 else '' }}
+        <p class="card-sub">{{ book.author or 'Unknown author' }}</p>
+        <div class="pills" style="margin: 0.35rem 0 0;">
+            <span class="pill">{{ book.total_chapters }} chapters</span>
+            <span class="pill">{{ book.draft_count }} draft{{ 's' if book.draft_count != 1 else '' }}</span>
             {% set st = statuses.get(book.id, {}) %}
             {% if st.get('full') %}
                 {% set stage = st['full'] %}
-                <span class="tag {% if stage == 'complete' %}complete{% elif 'FAIL' in stage %}failed{% else %}running{% endif %}">
+                <span class="pill {% if stage == 'complete' %}status-complete{% elif 'FAIL' in stage %}status-failed{% else %}status-running{% endif %}">
                     {{ stage }}
                 </span>
             {% endif %}
-        </p>
-        <p style="font-size: 0.7rem; margin-top: 0.3rem; opacity: 0.6;">{{ fmt(book.created_at) }}</p>
+        </div>
     </div>
 </a>
 {% endfor %}
