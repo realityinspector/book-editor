@@ -4,33 +4,37 @@
 
 {% block crumb %}
 <span class="sep">/</span>
-<a href="/browse/book/{{ book.id }}">{{ book.title[:25] }}{% if book.title|length > 25 %}..{% endif %}</a>
+<a href="/browse/book/{{ book.id }}">{{ book.title[:22] }}{% if book.title|length > 22 %}..{% endif %}</a>
 <span class="sep">/</span>
 <span>Log</span>
 {% endblock %}
 
 {% block content %}
 <h1>Agent Log</h1>
-<p class="meta">
-    {{ book.title }} &middot; {{ interactions|length }} interaction{{ 's' if interactions|length != 1 else '' }}
-</p>
+<p class="subtitle">{{ book.title }}</p>
+<div class="pills">
+    <span class="pill">{{ interactions|length }} interactions</span>
+</div>
 
 <hr class="divider">
 
 {% if not interactions %}
-<p class="meta">No interactions recorded yet.</p>
+<p class="subtitle">No interactions recorded yet.</p>
 {% endif %}
 
 {% for i in interactions %}
 <div class="log-entry">
     <div class="log-meta">
         <strong>{{ i.agent_name }}</strong>
+        <span class="pill">{{ i.interaction_type }}</span>
         <span>{{ i.role }}</span>
-        <span class="tag">{{ i.interaction_type }}</span>
         <span>{{ fmt(i.created_at) }}</span>
+        {% if i.full_length and i.full_length > 3000 %}
+        <span class="pill">{{ '{:,}'.format(i.full_length) }} chars</span>
+        {% endif %}
     </div>
-    <div class="log-content" id="log-{{ loop.index }}">{{ i.content[:2000] }}{% if i.content|length > 2000 %}...{% endif %}</div>
-    {% if i.content|length > 300 %}
+    <div class="log-content" id="log-{{ loop.index }}">{{ i.content }}</div>
+    {% if i.content|length > 200 %}
     <button class="expand-btn" onclick="toggleLog({{ loop.index }}, this)">Show more</button>
     {% endif %}
 </div>
@@ -41,13 +45,8 @@
 <script>
 function toggleLog(idx, btn) {
     const el = document.getElementById('log-' + idx);
-    if (el.classList.contains('expanded')) {
-        el.classList.remove('expanded');
-        btn.textContent = 'Show more';
-    } else {
-        el.classList.add('expanded');
-        btn.textContent = 'Show less';
-    }
+    el.classList.toggle('expanded');
+    btn.textContent = el.classList.contains('expanded') ? 'Show less' : 'Show more';
 }
 </script>
 {% endblock %}
