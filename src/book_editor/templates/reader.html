@@ -266,8 +266,10 @@
         <button class="normie-pill" id="ann-good-normie">good for normies</button>
         <button class="normie-pill" id="ann-bad-normie">bad for normies</button>
     </div>
-    <textarea id="ann-comment" placeholder="Comment (optional)"></textarea>
-    <input type="text" id="ann-author" placeholder="Your name">
+    <div style="position:relative;">
+        <textarea id="ann-comment" placeholder="Comment (optional) — use @username to mention"></textarea>
+        <div id="mention-dropdown" style="display:none;position:absolute;bottom:100%;left:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.1);max-height:120px;overflow-y:auto;width:200px;z-index:200;"></div>
+    </div>
     <div class="popup-actions">
         <button class="btn-cancel" id="ann-cancel">Cancel</button>
         <button class="btn-save" id="ann-save">Save</button>
@@ -337,6 +339,7 @@
 const DRAFT_ID = {{ draft.id }};
 const raw = {{ draft.full_text | tojson }};
 const el = document.getElementById('draft-content');
+const ALL_USERS = {{ all_users | tojson }};
 
 if (raw && raw.trim()) {
     marked.setOptions({ breaks: false, gfm: true });
@@ -355,10 +358,53 @@ let activeDetailId = null;
 
 const popup = document.getElementById('ann-popup');
 const detail = document.getElementById('ann-detail');
-const authorInput = document.getElementById('ann-author');
 
-// Restore author from localStorage
-authorInput.value = localStorage.getItem('ann-author') || '';
+// ── @mention autocomplete ──
+const commentBox = document.getElementById('ann-comment');
+const mentionDropdown = document.getElementById('mention-dropdown');
+
+commentBox.addEventListener('input', function() {
+    const val = this.value;
+    const cursor = this.selectionStart;
+    // Find @ before cursor
+    const before = val.substring(0, cursor);
+    const match = before.match(/@(\w*)$/);
+    if (match) {
+        const query = match[1].toLowerCase();
+        const matches = ALL_USERS.filter(u =>
+            u.username.startsWith(query) || (u.display_name || '').toLowerCase().startsWith(query)
+        ).slice(0, 5);
+        if (matches.length && query.length > 0) {
+            mentionDropdown.innerHTML = matches.map(u => `
+                <div style="padding:0.35rem 0.6rem;cursor:pointer;font-size:0.72rem;font-family:inherit;"
+                     onmousedown="insertMention('${u.username}')">
+                    <strong>@${u.username}</strong>
+                    <span style="color:var(--secondary);margin-left:0.3rem;">${u.display_name || ''}</span>
+                </div>
+            `).join('');
+            mentionDropdown.style.display = 'block';
+            return;
+        }
+    }
+    mentionDropdown.style.display = 'none';
+});
+
+commentBox.addEventListener('blur', function() {
+    setTimeout(() => { mentionDropdown.style.display = 'none'; }, 150);
+});
+
+function insertMention(username) {
+    const val = commentBox.value;
+    const cursor = commentBox.selectionStart;
+    const before = val.substring(0, cursor);
+    const after = val.substring(cursor);
+    const atPos = before.lastIndexOf('@');
+    commentBox.value = before.substring(0, atPos) + '@' + username + ' ' + after;
+    commentBox.focus();
+    const newPos = atPos + username.length + 2;
+    commentBox.setSelectionRange(newPos, newPos);
+    mentionDropdown.style.display = 'none';
+}
 
 // ── Text selection → popup ──
 el.addEventListener('mouseup', function(e) {
@@ -443,11 +489,8 @@ document.getElementById('ann-cancel').addEventListener('click', function() {
 // Save
 document.getElementById('ann-save').addEventListener('click', async function() {
     if (!pendingSelection) return;
-    const author = authorInput.value.trim();
-    localStorage.setItem('ann-author', author);
 
     const body = {
-        author_name: author,
         selected_text: pendingSelection.text,
         prefix_context: pendingSelection.prefix,
         suffix_context: pendingSelection.suffix,
@@ -596,7 +639,7 @@ el.addEventListener('click', function(e) {
 
     activeDetailId = annId;
 
-    document.getElementById('detail-author').textContent = ann.author_name || 'anonymous';
+    document.getElementById('detail-author').textContent = ann.display_name || ann.username || ann.author_name || 'anonymous';
     const ratingEl = document.getElementById('detail-rating');
     ratingEl.textContent = (ann.rating >= 0 ? '+' : '') + ann.rating;
     ratingEl.style.background = ann.rating < 0 ? '#f8d7da' : ann.rating === 0 ? '#fef7e0' : '#d4edda';

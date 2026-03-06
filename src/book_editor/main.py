@@ -9,7 +9,7 @@ import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from book_editor import db
@@ -18,7 +18,7 @@ from book_editor.pipelines.orchestrator import run_pipeline
 from book_editor.pipelines.full_book import run_full_book_pipeline
 from book_editor.pipelines.micro_book import run_micro_book_pipeline
 from book_editor.epub_parser import ingest_epub
-from book_editor.browser import router as browser_router
+from book_editor.browser import router as browser_router, _get_current_user
 
 # ── Logging ──
 
@@ -72,7 +72,7 @@ async def health():
 # ── Upload & Ingest ──
 
 @app.post("/books/upload")
-async def upload_epub(file: UploadFile = File(...)):
+async def upload_epub(request: Request, file: UploadFile = File(...)):
     """Upload an .epub file and ingest it into the database."""
     if not file.filename or not file.filename.endswith(".epub"):
         raise HTTPException(400, "File must be an .epub")
@@ -83,8 +83,12 @@ async def upload_epub(file: UploadFile = File(...)):
 
     book_id = await ingest_epub(str(filepath))
 
+    # Set owner if user is authenticated
+    user = await _get_current_user(request)
     pool = await db.get_pool()
     async with pool.acquire() as conn:
+        if user and user["id"] > 0:
+            await conn.execute("UPDATE books SET owner_id = $1 WHERE id = $2", user["id"], book_id)
         book = await conn.fetchrow("SELECT * FROM books WHERE id = $1", book_id)
         chapter_count = await conn.fetchval(
             "SELECT COUNT(*) FROM chapters WHERE book_id = $1", book_id

@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     app_name: str = "book-editor"
     log_level: str = "INFO"
     access_key: str = ""
+    session_secret: str = "book-editor-default-session-secret"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

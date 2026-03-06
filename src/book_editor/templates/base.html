@@ -320,7 +320,15 @@
             <a href="/browse">Library</a>
             {% block crumb %}{% endblock %}
         </div>
-        <a href="/logout">Exit</a>
+        <div style="display:flex;align-items:center;gap:0.6rem;">
+            {% if user is defined and user %}
+            <span id="mention-badge" style="display:none;cursor:pointer;" title="Mentions">
+                <span style="background:#007aff;color:#fff;font-size:0.6rem;font-weight:700;padding:0.12rem 0.4rem;border-radius:100px;"></span>
+            </span>
+            <span style="color:var(--secondary);">{{ user.display_name or user.username }}</span>
+            {% endif %}
+            <a href="/logout">Exit</a>
+        </div>
     </nav>
     {% endblock %}
     <main>

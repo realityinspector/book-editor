@@ -5,12 +5,28 @@
 {% block nav_block %}
 <nav>
     <div class="crumb"><span style="opacity:0.5;">Library</span></div>
-    <a href="/logout">Exit</a>
+    <div style="display:flex;align-items:center;gap:0.6rem;">
+        {% if user %}
+        {% if mention_count > 0 %}
+        <span id="mention-badge" style="cursor:pointer;" title="{{ mention_count }} unread mention{{ 's' if mention_count != 1 else '' }}" onclick="showMentions()">
+            <span style="background:#007aff;color:#fff;font-size:0.6rem;font-weight:700;padding:0.12rem 0.4rem;border-radius:100px;">{{ mention_count }}</span>
+        </span>
+        {% endif %}
+        <span style="color:#86868b;font-size:0.72rem;">{{ user.display_name or user.username }}{% if user.is_admin %} <span style="font-size:0.6rem;background:#1d1d1f;color:#fafaf8;padding:0.1rem 0.35rem;border-radius:100px;">admin</span>{% endif %}</span>
+        {% endif %}
+        <a href="/logout">Exit</a>
+    </div>
 </nav>
 {% endblock %}
 
 {% block content %}
 <h1>Library</h1>
+
+<!-- Mentions panel -->
+<div id="mentions-panel" style="display:none;margin:1rem 0;">
+    <div class="section-label">Mentions</div>
+    <div id="mentions-list"></div>
+</div>
 
 {% if not books %}
 <p class="subtitle" style="margin-top: 2rem;">No books yet. Upload an .epub via the API to get started.</p>
@@ -20,7 +36,12 @@
 <a href="/browse/book/{{ book.id }}" class="card-link">
     <div class="card">
         <h3>{{ book.title or 'Untitled' }}</h3>
-        <p class="card-sub">{{ book.author or 'Unknown author' }}</p>
+        <p class="card-sub">
+            {{ book.author or 'Unknown author' }}
+            {% if book.owner_id and owner_names.get(book.owner_id) %}
+            <span style="opacity:0.5;margin-left:0.3rem;">shared by {{ owner_names[book.owner_id] }}</span>
+            {% endif %}
+        </p>
         <div class="pills" style="margin: 0.35rem 0 0;">
             <span class="pill">{{ book.total_chapters }} chapters</span>
             <span class="pill">{{ book.draft_count }} draft{{ 's' if book.draft_count != 1 else '' }}</span>
@@ -35,4 +56,43 @@
     </div>
 </a>
 {% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function showMentions() {
+    const panel = document.getElementById('mentions-panel');
+    const list = document.getElementById('mentions-list');
+    if (panel.style.display !== 'none') {
+        panel.style.display = 'none';
+        return;
+    }
+    panel.style.display = 'block';
+    list.innerHTML = '<p class="subtitle" style="font-size:0.78rem;">Loading...</p>';
+
+    const resp = await fetch('/api/mentions');
+    if (!resp.ok) { list.innerHTML = '<p class="subtitle">Failed to load</p>'; return; }
+    const mentions = await resp.json();
+
+    if (!mentions.length) {
+        list.innerHTML = '<p class="subtitle" style="font-size:0.78rem;">No mentions yet.</p>';
+        return;
+    }
+
+    list.innerHTML = mentions.map(m => `
+        <a href="/browse/draft/${m.draft_id}" class="card-link">
+            <div class="card" style="padding:0.7rem 1rem;">
+                <div style="font-size:0.78rem;"><strong>${m.from_name || m.from_username || '?'}</strong> mentioned you</div>
+                <div style="font-size:0.72rem;color:var(--secondary);margin-top:0.15rem;">"${(m.comment || '').substring(0, 120)}"</div>
+                <div style="font-size:0.65rem;color:var(--secondary);margin-top:0.1rem;font-style:italic;">${(m.selected_text || '').substring(0, 80)}</div>
+            </div>
+        </a>
+    `).join('');
+
+    // Mark as seen
+    await fetch('/api/mentions/mark-seen', { method: 'POST' });
+    const badge = document.getElementById('mention-badge');
+    if (badge) badge.style.display = 'none';
+}
+</script>
 {% endblock %}
