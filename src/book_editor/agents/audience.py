@@ -21,9 +21,11 @@ class AudienceReviewerAgent(BaseAgent):
         # Build persona-specific system prompt from template
         prompts = load_prompts()
         template = prompts["audience_reviewer"]["system_prompt_template"]
-        self.system_prompt = template.format(
-            persona_name=persona_name,
-            persona_description=persona_description,
+        # Use replace instead of .format() to avoid conflicts with JSON braces in template
+        self.system_prompt = (
+            template
+            .replace("{persona_name}", persona_name)
+            .replace("{persona_description}", persona_description)
         )
 
     async def review_draft(self, draft_id: int, round_num: int) -> dict:
