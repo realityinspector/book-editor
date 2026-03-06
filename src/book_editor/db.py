@@ -98,12 +98,27 @@ CREATE TABLE IF NOT EXISTS pipeline_status (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS annotations (
+    id SERIAL PRIMARY KEY,
+    draft_id INT REFERENCES book_drafts(id) ON DELETE CASCADE,
+    author_name TEXT NOT NULL DEFAULT '',
+    selected_text TEXT NOT NULL,
+    prefix_context TEXT DEFAULT '',
+    suffix_context TEXT DEFAULT '',
+    comment TEXT DEFAULT '',
+    rating INT DEFAULT 0 CHECK (rating >= -2 AND rating <= 3),
+    good_for_normies BOOLEAN DEFAULT FALSE,
+    bad_for_normies BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_pipeline_status_book ON pipeline_status(book_id, pipeline);
 CREATE INDEX IF NOT EXISTS idx_chapters_book ON chapters(book_id, original_index);
 CREATE INDEX IF NOT EXISTS idx_revisions_chapter ON chapter_revisions(chapter_id, version);
 CREATE INDEX IF NOT EXISTS idx_interactions_book ON agent_interactions(book_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_judge_memory_book ON judge_memory(book_id, category);
 CREATE INDEX IF NOT EXISTS idx_drafts_book ON book_drafts(book_id, version);
+CREATE INDEX IF NOT EXISTS idx_annotations_draft ON annotations(draft_id);
 """
 
 

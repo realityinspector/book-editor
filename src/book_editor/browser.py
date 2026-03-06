@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from book_editor import db
@@ -330,3 +330,63 @@ async def interaction_log(request: Request, book_id: int):
         "interactions": [dict(i) for i in interactions],
         "fmt": _fmt,
     })
+
+
+# ── Annotations API ──
+
+
+@router.get("/api/drafts/{draft_id}/annotations")
+async def get_annotations(request: Request, draft_id: int):
+    if not _auth_ok(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT id, draft_id, author_name, selected_text, prefix_context,
+                      suffix_context, comment, rating, good_for_normies,
+                      bad_for_normies, created_at
+               FROM annotations WHERE draft_id = $1 ORDER BY created_at""",
+            draft_id,
+        )
+    return JSONResponse([
+        {**dict(r), "created_at": r["created_at"].isoformat()} for r in rows
+    ])
+
+
+@router.post("/api/drafts/{draft_id}/annotations")
+async def create_annotation(request: Request, draft_id: int):
+    if not _auth_ok(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    body = await request.json()
+    rating = int(body.get("rating", 0))
+    if rating < -2 or rating > 3:
+        return JSONResponse({"error": "rating must be between -2 and 3"}, status_code=400)
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """INSERT INTO annotations
+               (draft_id, author_name, selected_text, prefix_context, suffix_context,
+                comment, rating, good_for_normies, bad_for_normies)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+               RETURNING id, created_at""",
+            draft_id,
+            body.get("author_name", ""),
+            body.get("selected_text", ""),
+            body.get("prefix_context", ""),
+            body.get("suffix_context", ""),
+            body.get("comment", ""),
+            rating,
+            bool(body.get("good_for_normies", False)),
+            bool(body.get("bad_for_normies", False)),
+        )
+    return JSONResponse({"id": row["id"], "created_at": row["created_at"].isoformat()})
+
+
+@router.delete("/api/annotations/{annotation_id}")
+async def delete_annotation(request: Request, annotation_id: int):
+    if not _auth_ok(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM annotations WHERE id = $1", annotation_id)
+    return JSONResponse({"ok": True})
