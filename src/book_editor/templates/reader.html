@@ -11,6 +11,202 @@
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+    /* ── Highlights ── */
+    mark.hl {
+        border-radius: 2px;
+        cursor: pointer;
+        padding: 0 1px;
+    }
+    mark.hl.rate-neg2 { background: rgba(220,38,38,0.25); }
+    mark.hl.rate-neg1 { background: rgba(220,38,38,0.14); }
+    mark.hl.rate-0    { background: rgba(250,204,21,0.25); }
+    mark.hl.rate-pos1 { background: rgba(34,197,94,0.15); }
+    mark.hl.rate-pos2 { background: rgba(34,197,94,0.25); }
+    mark.hl.rate-pos3 { background: rgba(34,197,94,0.38); }
+
+    /* ── Annotation popup form ── */
+    #ann-popup {
+        display: none;
+        position: absolute;
+        z-index: 100;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.9rem 1rem;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+        width: 320px;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+        font-size: 0.78rem;
+    }
+    #ann-popup .selected-preview {
+        font-size: 0.72rem;
+        color: var(--secondary);
+        font-style: italic;
+        margin-bottom: 0.6rem;
+        max-height: 2.8rem;
+        overflow: hidden;
+        line-height: 1.4;
+    }
+    .rating-row {
+        display: flex;
+        gap: 0.25rem;
+        margin-bottom: 0.5rem;
+    }
+    .rating-btn {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+        font-size: 0.68rem;
+        font-weight: 600;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--surface);
+        padding: 0.25rem 0.5rem;
+        cursor: pointer;
+        transition: background 0.12s, border-color 0.12s;
+        color: var(--text);
+        min-width: 2rem;
+        text-align: center;
+    }
+    .rating-btn:hover { border-color: var(--accent); }
+    .rating-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .normie-row {
+        display: flex;
+        gap: 0.3rem;
+        margin-bottom: 0.5rem;
+    }
+    .normie-pill {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+        font-size: 0.65rem;
+        font-weight: 500;
+        padding: 0.2rem 0.6rem;
+        border-radius: 100px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        cursor: pointer;
+        transition: background 0.12s;
+        color: var(--secondary);
+    }
+    .normie-pill:hover { border-color: var(--accent); }
+    .normie-pill.active-good { background: #d4edda; color: #155724; border-color: #a3d9b1; }
+    .normie-pill.active-bad { background: #f8d7da; color: #721c24; border-color: #f1aeb5; }
+    #ann-popup textarea {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.4rem 0.5rem;
+        font-family: inherit;
+        font-size: 0.75rem;
+        resize: vertical;
+        min-height: 2.5rem;
+        margin-bottom: 0.4rem;
+    }
+    #ann-popup input[type="text"] {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.35rem 0.5rem;
+        font-family: inherit;
+        font-size: 0.75rem;
+        margin-bottom: 0.5rem;
+    }
+    .popup-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.4rem;
+    }
+    .popup-actions button {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 0.3rem 0.8rem;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        cursor: pointer;
+        transition: background 0.12s;
+    }
+    .popup-actions .btn-save { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .popup-actions .btn-save:hover { background: #0066d6; }
+    .popup-actions .btn-cancel { background: var(--surface); color: var(--secondary); }
+    .popup-actions .btn-cancel:hover { background: #f0f0f5; }
+
+    /* ── Detail popover ── */
+    #ann-detail {
+        display: none;
+        position: absolute;
+        z-index: 101;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.9rem 1rem;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+        width: 300px;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+        font-size: 0.78rem;
+    }
+    #ann-detail .detail-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.4rem;
+    }
+    #ann-detail .detail-author {
+        font-weight: 600;
+        font-size: 0.8rem;
+    }
+    #ann-detail .detail-rating {
+        font-size: 0.68rem;
+        font-weight: 600;
+        padding: 0.15rem 0.5rem;
+        border-radius: 100px;
+    }
+    #ann-detail .detail-tags {
+        display: flex;
+        gap: 0.25rem;
+        margin-bottom: 0.4rem;
+    }
+    #ann-detail .detail-tags .pill { font-size: 0.6rem; }
+    #ann-detail .detail-comment {
+        font-size: 0.75rem;
+        color: var(--text);
+        line-height: 1.45;
+        margin-bottom: 0.5rem;
+    }
+    #ann-detail .detail-snippet {
+        font-size: 0.68rem;
+        color: var(--secondary);
+        font-style: italic;
+        max-height: 2.5rem;
+        overflow: hidden;
+        line-height: 1.35;
+        margin-bottom: 0.5rem;
+    }
+    #ann-detail .detail-actions {
+        display: flex;
+        justify-content: flex-end;
+    }
+    .btn-delete {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+        font-size: 0.65rem;
+        font-weight: 500;
+        color: #dc2626;
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 0.2rem 0.4rem;
+    }
+    .btn-delete:hover { text-decoration: underline; }
+
+    /* ── Summary bar ── */
+    .ann-summary {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+        font-size: 0.7rem;
+        color: var(--secondary);
+        padding: 0.4rem 0;
+        margin-bottom: 0.5rem;
+        display: none;
+    }
+    .ann-summary .pill { font-size: 0.6rem; margin-left: 0.3rem; }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -46,9 +242,50 @@
 
 <hr class="divider">
 
+<!-- ── Annotation Summary ── -->
+<div class="ann-summary" id="ann-summary"></div>
+
 <!-- ── Reading Content ── -->
-<div class="prose" id="draft-content">
+<div class="prose" id="draft-content" style="position:relative;">
     <p class="subtitle">Loading content...</p>
+</div>
+
+<!-- ── Annotation Popup Form ── -->
+<div id="ann-popup">
+    <div class="selected-preview" id="ann-sel-preview"></div>
+    <div style="font-size:0.65rem;font-weight:600;color:var(--secondary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.3rem;">Rating</div>
+    <div class="rating-row" id="ann-rating-row">
+        <button class="rating-btn" data-val="-2">-2</button>
+        <button class="rating-btn" data-val="-1">-1</button>
+        <button class="rating-btn active" data-val="0">0</button>
+        <button class="rating-btn" data-val="1">+1</button>
+        <button class="rating-btn" data-val="2">+2</button>
+        <button class="rating-btn" data-val="3">+3</button>
+    </div>
+    <div class="normie-row">
+        <button class="normie-pill" id="ann-good-normie">good for normies</button>
+        <button class="normie-pill" id="ann-bad-normie">bad for normies</button>
+    </div>
+    <textarea id="ann-comment" placeholder="Comment (optional)"></textarea>
+    <input type="text" id="ann-author" placeholder="Your name">
+    <div class="popup-actions">
+        <button class="btn-cancel" id="ann-cancel">Cancel</button>
+        <button class="btn-save" id="ann-save">Save</button>
+    </div>
+</div>
+
+<!-- ── Annotation Detail Popover ── -->
+<div id="ann-detail">
+    <div class="detail-header">
+        <span class="detail-author" id="detail-author"></span>
+        <span class="detail-rating pill" id="detail-rating"></span>
+    </div>
+    <div class="detail-tags" id="detail-tags"></div>
+    <div class="detail-comment" id="detail-comment"></div>
+    <div class="detail-snippet" id="detail-snippet"></div>
+    <div class="detail-actions">
+        <button class="btn-delete" id="detail-delete">Delete</button>
+    </div>
 </div>
 
 <!-- ── Audience Reviews ── -->
@@ -97,13 +334,314 @@
 
 {% block scripts %}
 <script>
-    const raw = {{ draft.full_text | tojson }};
-    const el = document.getElementById('draft-content');
-    if (raw && raw.trim()) {
-        marked.setOptions({ breaks: false, gfm: true });
-        el.innerHTML = marked.parse(raw);
-    } else {
-        el.innerHTML = '<p class="subtitle">No content in this draft.</p>';
+const DRAFT_ID = {{ draft.id }};
+const raw = {{ draft.full_text | tojson }};
+const el = document.getElementById('draft-content');
+
+if (raw && raw.trim()) {
+    marked.setOptions({ breaks: false, gfm: true });
+    el.innerHTML = marked.parse(raw);
+} else {
+    el.innerHTML = '<p class="subtitle">No content in this draft.</p>';
+}
+
+// ── Annotation state ──
+let annotations = [];
+let pendingSelection = null;
+let currentRating = 0;
+let goodNormie = false;
+let badNormie = false;
+let activeDetailId = null;
+
+const popup = document.getElementById('ann-popup');
+const detail = document.getElementById('ann-detail');
+const authorInput = document.getElementById('ann-author');
+
+// Restore author from localStorage
+authorInput.value = localStorage.getItem('ann-author') || '';
+
+// ── Text selection → popup ──
+el.addEventListener('mouseup', function(e) {
+    // Ignore if clicking on a highlight
+    if (e.target.closest('mark.hl')) return;
+    setTimeout(() => {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
+        // Check selection is within prose
+        const range = sel.getRangeAt(0);
+        if (!el.contains(range.commonAncestorContainer)) return;
+
+        const text = sel.toString().trim();
+        if (text.length < 2) return;
+
+        // Gather context from the full text content
+        const fullText = el.textContent;
+        const selStart = fullText.indexOf(text);
+        const prefix = selStart > 0 ? fullText.substring(Math.max(0, selStart - 80), selStart) : '';
+        const suffix = selStart >= 0 ? fullText.substring(selStart + text.length, selStart + text.length + 80) : '';
+
+        pendingSelection = { text, prefix, suffix };
+
+        // Position popup below selection
+        const rect = range.getBoundingClientRect();
+        const scrollY = window.scrollY;
+        const scrollX = window.scrollX;
+        popup.style.top = (rect.bottom + scrollY + 8) + 'px';
+        popup.style.left = Math.max(8, Math.min(rect.left + scrollX, window.innerWidth - 340)) + 'px';
+
+        // Reset form
+        document.getElementById('ann-sel-preview').textContent = '"' + text.substring(0, 120) + (text.length > 120 ? '...' : '') + '"';
+        currentRating = 0;
+        goodNormie = false;
+        badNormie = false;
+        document.querySelectorAll('.rating-btn').forEach(b => b.classList.toggle('active', b.dataset.val === '0'));
+        document.getElementById('ann-good-normie').classList.remove('active-good');
+        document.getElementById('ann-bad-normie').classList.remove('active-bad');
+        document.getElementById('ann-comment').value = '';
+
+        popup.style.display = 'block';
+        detail.style.display = 'none';
+    }, 10);
+});
+
+// Close popup/detail on outside click
+document.addEventListener('mousedown', function(e) {
+    if (!popup.contains(e.target) && popup.style.display === 'block' && !el.contains(e.target)) {
+        popup.style.display = 'none';
     }
+    if (!detail.contains(e.target) && detail.style.display === 'block' && !e.target.closest('mark.hl')) {
+        detail.style.display = 'none';
+        activeDetailId = null;
+    }
+});
+
+// Rating buttons
+document.getElementById('ann-rating-row').addEventListener('click', function(e) {
+    const btn = e.target.closest('.rating-btn');
+    if (!btn) return;
+    currentRating = parseInt(btn.dataset.val);
+    document.querySelectorAll('.rating-btn').forEach(b => b.classList.toggle('active', b === btn));
+});
+
+// Normie pills
+document.getElementById('ann-good-normie').addEventListener('click', function() {
+    goodNormie = !goodNormie;
+    this.classList.toggle('active-good', goodNormie);
+});
+document.getElementById('ann-bad-normie').addEventListener('click', function() {
+    badNormie = !badNormie;
+    this.classList.toggle('active-bad', badNormie);
+});
+
+// Cancel
+document.getElementById('ann-cancel').addEventListener('click', function() {
+    popup.style.display = 'none';
+    pendingSelection = null;
+    window.getSelection().removeAllRanges();
+});
+
+// Save
+document.getElementById('ann-save').addEventListener('click', async function() {
+    if (!pendingSelection) return;
+    const author = authorInput.value.trim();
+    localStorage.setItem('ann-author', author);
+
+    const body = {
+        author_name: author,
+        selected_text: pendingSelection.text,
+        prefix_context: pendingSelection.prefix,
+        suffix_context: pendingSelection.suffix,
+        comment: document.getElementById('ann-comment').value.trim(),
+        rating: currentRating,
+        good_for_normies: goodNormie,
+        bad_for_normies: badNormie,
+    };
+
+    const resp = await fetch('/api/drafts/' + DRAFT_ID + '/annotations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!resp.ok) { alert('Failed to save'); return; }
+    const result = await resp.json();
+
+    annotations.push({ ...body, id: result.id, draft_id: DRAFT_ID, created_at: result.created_at });
+    popup.style.display = 'none';
+    pendingSelection = null;
+    window.getSelection().removeAllRanges();
+    renderHighlights();
+});
+
+// ── Load annotations and render highlights ──
+async function loadAnnotations() {
+    const resp = await fetch('/api/drafts/' + DRAFT_ID + '/annotations');
+    if (!resp.ok) return;
+    annotations = await resp.json();
+    renderHighlights();
+}
+
+function rateClass(r) {
+    if (r <= -2) return 'rate-neg2';
+    if (r === -1) return 'rate-neg1';
+    if (r === 0) return 'rate-0';
+    if (r === 1) return 'rate-pos1';
+    if (r === 2) return 'rate-pos2';
+    return 'rate-pos3';
+}
+
+function renderHighlights() {
+    // Strip existing highlights (unwrap marks)
+    el.querySelectorAll('mark.hl').forEach(mark => {
+        const parent = mark.parentNode;
+        while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+        parent.removeChild(mark);
+        parent.normalize();
+    });
+
+    if (!annotations.length) {
+        document.getElementById('ann-summary').style.display = 'none';
+        return;
+    }
+
+    // Update summary bar
+    const avg = annotations.reduce((s, a) => s + a.rating, 0) / annotations.length;
+    const summaryEl = document.getElementById('ann-summary');
+    summaryEl.innerHTML = annotations.length + ' annotation' + (annotations.length !== 1 ? 's' : '') +
+        '<span class="pill">' + avg.toFixed(1) + ' avg</span>';
+    summaryEl.style.display = 'block';
+
+    // Find and wrap each annotation's text
+    // Process in reverse order of position to avoid offset shifting
+    const fullText = el.textContent;
+    const toApply = [];
+
+    for (const ann of annotations) {
+        const idx = findTextPosition(fullText, ann.selected_text, ann.prefix_context, ann.suffix_context);
+        if (idx >= 0) toApply.push({ ann, idx });
+    }
+    // Sort by position descending so we wrap end-to-start
+    toApply.sort((a, b) => b.idx - a.idx);
+
+    for (const { ann, idx } of toApply) {
+        wrapTextRange(el, idx, ann.selected_text.length, ann);
+    }
+}
+
+function findTextPosition(fullText, selected, prefix, suffix) {
+    // Try exact match with prefix+suffix context first
+    if (prefix || suffix) {
+        const needle = prefix + selected + suffix;
+        const pos = fullText.indexOf(needle);
+        if (pos >= 0) return pos + prefix.length;
+    }
+    // Fallback: just find the selected text
+    const pos = fullText.indexOf(selected);
+    if (pos >= 0) return pos;
+    // Try trimmed match
+    const trimmed = selected.trim();
+    const pos2 = fullText.indexOf(trimmed);
+    return pos2;
+}
+
+function wrapTextRange(root, charOffset, charLength, ann) {
+    // Walk text nodes, find the range, wrap in <mark>
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let currentOffset = 0;
+    let startNode = null, startOff = 0;
+    let endNode = null, endOff = 0;
+    const targetEnd = charOffset + charLength;
+
+    while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const nodeLen = node.textContent.length;
+        const nodeEnd = currentOffset + nodeLen;
+
+        if (!startNode && nodeEnd > charOffset) {
+            startNode = node;
+            startOff = charOffset - currentOffset;
+        }
+        if (startNode && nodeEnd >= targetEnd) {
+            endNode = node;
+            endOff = targetEnd - currentOffset;
+            break;
+        }
+        currentOffset += nodeLen;
+    }
+
+    if (!startNode || !endNode) return;
+
+    try {
+        const range = document.createRange();
+        range.setStart(startNode, startOff);
+        range.setEnd(endNode, endOff);
+
+        const mark = document.createElement('mark');
+        mark.className = 'hl ' + rateClass(ann.rating);
+        mark.dataset.annId = ann.id;
+        range.surroundContents(mark);
+    } catch (e) {
+        // surroundContents fails if range crosses element boundaries — skip
+    }
+}
+
+// ── Highlight click → detail popover ──
+el.addEventListener('click', function(e) {
+    const mark = e.target.closest('mark.hl');
+    if (!mark) return;
+    e.stopPropagation();
+
+    const annId = parseInt(mark.dataset.annId);
+    const ann = annotations.find(a => a.id === annId);
+    if (!ann) return;
+
+    activeDetailId = annId;
+
+    document.getElementById('detail-author').textContent = ann.author_name || 'anonymous';
+    const ratingEl = document.getElementById('detail-rating');
+    ratingEl.textContent = (ann.rating >= 0 ? '+' : '') + ann.rating;
+    ratingEl.style.background = ann.rating < 0 ? '#f8d7da' : ann.rating === 0 ? '#fef7e0' : '#d4edda';
+    ratingEl.style.color = ann.rating < 0 ? '#721c24' : ann.rating === 0 ? '#9a6700' : '#155724';
+
+    const tagsEl = document.getElementById('detail-tags');
+    tagsEl.innerHTML = '';
+    if (ann.good_for_normies) {
+        const t = document.createElement('span');
+        t.className = 'pill';
+        t.style.cssText = 'background:#d4edda;color:#155724;';
+        t.textContent = 'good for normies';
+        tagsEl.appendChild(t);
+    }
+    if (ann.bad_for_normies) {
+        const t = document.createElement('span');
+        t.className = 'pill';
+        t.style.cssText = 'background:#f8d7da;color:#721c24;';
+        t.textContent = 'bad for normies';
+        tagsEl.appendChild(t);
+    }
+
+    document.getElementById('detail-comment').textContent = ann.comment || '';
+    document.getElementById('detail-comment').style.display = ann.comment ? 'block' : 'none';
+    document.getElementById('detail-snippet').textContent = '"' + (ann.selected_text || '').substring(0, 100) + '"';
+
+    const rect = mark.getBoundingClientRect();
+    detail.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+    detail.style.left = Math.max(8, Math.min(rect.left + window.scrollX, window.innerWidth - 320)) + 'px';
+    detail.style.display = 'block';
+    popup.style.display = 'none';
+});
+
+// Delete annotation
+document.getElementById('detail-delete').addEventListener('click', async function() {
+    if (!activeDetailId) return;
+    const resp = await fetch('/api/annotations/' + activeDetailId, { method: 'DELETE' });
+    if (!resp.ok) { alert('Failed to delete'); return; }
+    annotations = annotations.filter(a => a.id !== activeDetailId);
+    detail.style.display = 'none';
+    activeDetailId = null;
+    renderHighlights();
+});
+
+// Load on page ready
+loadAnnotations();
 </script>
 {% endblock %}
