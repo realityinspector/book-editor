@@ -119,6 +119,36 @@ CREATE INDEX IF NOT EXISTS idx_interactions_book ON agent_interactions(book_id, 
 CREATE INDEX IF NOT EXISTS idx_judge_memory_book ON judge_memory(book_id, category);
 CREATE INDEX IF NOT EXISTS idx_drafts_book ON book_drafts(book_id, version);
 CREATE INDEX IF NOT EXISTS idx_annotations_draft ON annotations(draft_id);
+
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    display_name TEXT DEFAULT '',
+    is_admin BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS book_shares (
+    id SERIAL PRIMARY KEY,
+    book_id INT REFERENCES books(id) ON DELETE CASCADE,
+    shared_by_id INT REFERENCES users(id) ON DELETE CASCADE,
+    shared_with_id INT REFERENCES users(id) ON DELETE CASCADE,
+    permission TEXT DEFAULT 'read',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(book_id, shared_with_id)
+);
+
+CREATE TABLE IF NOT EXISTS mentions (
+    id SERIAL PRIMARY KEY,
+    annotation_id INT REFERENCES annotations(id) ON DELETE CASCADE,
+    mentioned_user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    seen BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_book_shares_user ON book_shares(shared_with_id);
+CREATE INDEX IF NOT EXISTS idx_mentions_user ON mentions(mentioned_user_id, seen);
 """
 
 
@@ -130,6 +160,15 @@ async def init_pool():
     pool = await asyncpg.create_pool(dsn, min_size=2, max_size=20)
     async with pool.acquire() as conn:
         await conn.execute(SCHEMA)
+        # Migrations for existing tables
+        for stmt in [
+            "ALTER TABLE books ADD COLUMN IF NOT EXISTS owner_id INT REFERENCES users(id)",
+            "ALTER TABLE annotations ADD COLUMN IF NOT EXISTS user_id INT REFERENCES users(id)",
+        ]:
+            try:
+                await conn.execute(stmt)
+            except Exception:
+                pass  # column already exists or other benign error
     logger.info("Database pool initialized and schema applied")
 
 
