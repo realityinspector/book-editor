@@ -12,3 +12,5 @@ build/
 uploads/
 output/
 *.epub
+.access-key
+.DS_Store

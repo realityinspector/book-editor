@@ -73,6 +73,15 @@ def _verify_session_token(token: str) -> int | None:
     return None
 
 
+async def _user_by_id(user_id: int) -> dict | None:
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, username, display_name, is_admin FROM users WHERE id = $1", user_id
+        )
+    return dict(row) if row else None
+
+
 async def _get_current_user(req: Request) -> dict | None:
     """Get the current logged-in user from session cookie, or None."""
     token = req.cookies.get("session_token", "")
@@ -84,12 +93,38 @@ async def _get_current_user(req: Request) -> dict | None:
             if old_token == hashlib.sha256(settings.access_key.encode()).hexdigest():
                 return {"id": 0, "username": "legacy", "display_name": "Legacy User", "is_admin": True}
         return None
-    pool = await db.get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT id, username, display_name, is_admin FROM users WHERE id = $1", user_id
-        )
-    return dict(row) if row else None
+    return await _user_by_id(user_id)
+
+
+async def _get_api_user(req: Request) -> dict | None:
+    """Authenticate a programmatic/API request.
+
+    Accepts a browser session cookie, an `Authorization: Bearer <token>` header,
+    or an `X-Access-Key` header. The bearer/key may be either the shared
+    ACCESS_KEY (treated as admin) or a valid user session token.
+    """
+    user = await _get_current_user(req)
+    if user:
+        return user
+
+    token = ""
+    auth_header = req.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+    if not token:
+        token = req.headers.get("x-access-key", "").strip()
+    if not token:
+        return None
+
+    # Shared access key → admin-equivalent service identity
+    if settings.access_key and hmac.compare_digest(token, settings.access_key):
+        return {"id": 0, "username": "api", "display_name": "API (admin)", "is_admin": True}
+
+    # Otherwise treat it as a user session token
+    user_id = _verify_session_token(token)
+    if user_id:
+        return await _user_by_id(user_id)
+    return None
 
 
 def _fmt(dt) -> str:
@@ -120,6 +155,12 @@ def _parse_mentions(text: str) -> list[str]:
 
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
+    # Public landing: everyone lands on the library. Reading needs no account.
+    return RedirectResponse("/browse", status_code=302)
+
+
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
     user = await _get_current_user(request)
     if user:
         return RedirectResponse("/browse", status_code=302)
@@ -222,13 +263,12 @@ async def logout():
 @router.get("/browse", response_class=HTMLResponse)
 async def home(request: Request):
     user = await _get_current_user(request)
-    if not user:
-        return RedirectResponse("/", status_code=302)
 
     pool = await db.get_pool()
     async with pool.acquire() as conn:
-        # Get books user owns or has access to (admin sees all)
-        if user.get("is_admin") or user["id"] == 0:
+        # Anonymous visitors and admins see the whole library (read-only);
+        # regular users see books they own, have shared, or that are public.
+        if user is None or user.get("is_admin") or user["id"] == 0:
             books = await conn.fetch("""
                 SELECT b.id, b.title, b.author, b.total_chapters, b.created_at,
                        b.owner_id, COUNT(d.id) as draft_count
@@ -264,7 +304,7 @@ async def home(request: Request):
 
         # Unread mention count
         mention_count = 0
-        if user["id"] > 0:
+        if user and user["id"] > 0:
             mention_count = await conn.fetchval(
                 "SELECT COUNT(*) FROM mentions WHERE mentioned_user_id = $1 AND seen = FALSE",
                 user["id"],
@@ -284,7 +324,9 @@ async def home(request: Request):
 # ── Book Detail ──
 
 
-async def _user_can_access_book(conn, user: dict, book_id: int) -> bool:
+async def _user_can_access_book(conn, user: dict | None, book_id: int) -> bool:
+    if user is None:
+        return True  # anonymous read access
     if user.get("is_admin") or user["id"] == 0:
         return True
     book = await conn.fetchrow("SELECT owner_id FROM books WHERE id = $1", book_id)
@@ -299,7 +341,9 @@ async def _user_can_access_book(conn, user: dict, book_id: int) -> bool:
     return bool(shared)
 
 
-async def _user_can_write_book(conn, user: dict, book_id: int) -> bool:
+async def _user_can_write_book(conn, user: dict | None, book_id: int) -> bool:
+    if user is None:
+        return False  # anonymous cannot modify books
     if user.get("is_admin") or user["id"] == 0:
         return True
     book = await conn.fetchrow("SELECT owner_id FROM books WHERE id = $1", book_id)
@@ -317,8 +361,6 @@ async def _user_can_write_book(conn, user: dict, book_id: int) -> bool:
 @router.get("/browse/book/{book_id}", response_class=HTMLResponse)
 async def book_detail(request: Request, book_id: int):
     user = await _get_current_user(request)
-    if not user:
-        return RedirectResponse("/", status_code=302)
 
     pool = await db.get_pool()
     async with pool.acquire() as conn:
@@ -415,7 +457,7 @@ async def book_detail(request: Request, book_id: int):
         "micro": _model_short(settings.micro_model),
     }
 
-    is_owner = (book["owner_id"] is None or book["owner_id"] == user["id"] or user.get("is_admin"))
+    is_owner = bool(user) and (book["owner_id"] is None or book["owner_id"] == user["id"] or user.get("is_admin"))
 
     return _tpl.TemplateResponse("book.html", {
         "request": request,
@@ -445,8 +487,6 @@ async def book_detail(request: Request, book_id: int):
 @router.get("/browse/draft/{draft_id}", response_class=HTMLResponse)
 async def draft_reader(request: Request, draft_id: int):
     user = await _get_current_user(request)
-    if not user:
-        return RedirectResponse("/", status_code=302)
 
     pool = await db.get_pool()
     async with pool.acquire() as conn:
@@ -536,8 +576,6 @@ async def draft_reader(request: Request, draft_id: int):
 @router.get("/browse/book/{book_id}/log", response_class=HTMLResponse)
 async def interaction_log(request: Request, book_id: int):
     user = await _get_current_user(request)
-    if not user:
-        return RedirectResponse("/", status_code=302)
 
     pool = await db.get_pool()
     async with pool.acquire() as conn:
@@ -682,9 +720,7 @@ async def list_users(request: Request):
 
 @router.get("/api/drafts/{draft_id}/annotations")
 async def get_annotations(request: Request, draft_id: int):
-    user = await _get_current_user(request)
-    if not user:
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    # Annotations are readable by anyone (baseline read access).
     pool = await db.get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -703,20 +739,22 @@ async def get_annotations(request: Request, draft_id: int):
 
 @router.post("/api/drafts/{draft_id}/annotations")
 async def create_annotation(request: Request, draft_id: int):
+    # Baseline users may annotate without an account (stored as anonymous).
     user = await _get_current_user(request)
-    if not user:
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
     body = await request.json()
     rating = int(body.get("rating", 0))
     if rating < -2 or rating > 3:
         return JSONResponse({"error": "rating must be between -2 and 3"}, status_code=400)
 
     comment = body.get("comment", "")
-    author_name = body.get("author_name", "") or user.get("display_name") or user.get("username", "")
+    if user:
+        author_name = body.get("author_name", "") or user.get("display_name") or user.get("username", "")
+    else:
+        author_name = body.get("author_name", "").strip() or "anonymous"
 
     pool = await db.get_pool()
     async with pool.acquire() as conn:
-        user_id = user["id"] if user["id"] > 0 else None
+        user_id = user["id"] if (user and user["id"] > 0) else None
         row = await conn.fetchrow(
             """INSERT INTO annotations
                (draft_id, author_name, selected_text, prefix_context, suffix_context,

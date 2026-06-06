@@ -18,7 +18,7 @@ from book_editor.pipelines.orchestrator import run_pipeline
 from book_editor.pipelines.full_book import run_full_book_pipeline
 from book_editor.pipelines.micro_book import run_micro_book_pipeline
 from book_editor.epub_parser import ingest_epub
-from book_editor.browser import router as browser_router, _get_current_user
+from book_editor.browser import router as browser_router, _get_api_user
 
 # ── Logging ──
 
@@ -74,6 +74,9 @@ async def health():
 @app.post("/books/upload")
 async def upload_epub(request: Request, file: UploadFile = File(...)):
     """Upload an .epub file and ingest it into the database."""
+    user = await _get_api_user(request)
+    if not user:
+        raise HTTPException(401, "Authentication required")
     if not file.filename or not file.filename.endswith(".epub"):
         raise HTTPException(400, "File must be an .epub")
 
@@ -83,8 +86,7 @@ async def upload_epub(request: Request, file: UploadFile = File(...)):
 
     book_id = await ingest_epub(str(filepath))
 
-    # Set owner if user is authenticated
-    user = await _get_current_user(request)
+    # Set owner if a real (non-service) user uploaded it
     pool = await db.get_pool()
     async with pool.acquire() as conn:
         if user and user["id"] > 0:
@@ -105,8 +107,10 @@ async def upload_epub(request: Request, file: UploadFile = File(...)):
 # ── Pipeline Execution ──
 
 @app.post("/books/{book_id}/micro")
-async def start_micro_pipeline(book_id: int):
+async def start_micro_pipeline(request: Request, book_id: int):
     """Run the micro-book dry run pipeline."""
+    if not await _get_api_user(request):
+        raise HTTPException(401, "Authentication required")
     pool = await db.get_pool()
     async with pool.acquire() as conn:
         exists = await conn.fetchval("SELECT 1 FROM books WHERE id = $1", book_id)
@@ -139,8 +143,10 @@ async def _run_micro(book_id: int):
 
 
 @app.post("/books/{book_id}/full")
-async def start_full_pipeline(book_id: int):
+async def start_full_pipeline(request: Request, book_id: int):
     """Run the full book editing pipeline."""
+    if not await _get_api_user(request):
+        raise HTTPException(401, "Authentication required")
     pool = await db.get_pool()
     async with pool.acquire() as conn:
         exists = await conn.fetchval("SELECT 1 FROM books WHERE id = $1", book_id)
@@ -175,8 +181,10 @@ async def _run_full(book_id: int):
 
 
 @app.post("/books/{book_id}/run-all")
-async def start_full_orchestration(book_id: int, skip_micro: bool = False):
+async def start_full_orchestration(request: Request, book_id: int, skip_micro: bool = False):
     """Run micro dry run then full pipeline. Requires book already ingested."""
+    if not await _get_api_user(request):
+        raise HTTPException(401, "Authentication required")
     pool = await db.get_pool()
     async with pool.acquire() as conn:
         exists = await conn.fetchval("SELECT 1 FROM books WHERE id = $1", book_id)
@@ -220,13 +228,19 @@ async def _run_all(book_id: int, skip_micro: bool):
 # ── Delete ──
 
 @app.delete("/books/{book_id}")
-async def delete_book(book_id: int):
+async def delete_book(request: Request, book_id: int):
     """Delete a book and all its associated data (chapters, revisions, drafts, feedback, interactions, memory)."""
+    user = await _get_api_user(request)
+    if not user:
+        raise HTTPException(401, "Authentication required")
     pool = await db.get_pool()
     async with pool.acquire() as conn:
-        exists = await conn.fetchval("SELECT 1 FROM books WHERE id = $1", book_id)
-        if not exists:
+        book = await conn.fetchrow("SELECT owner_id FROM books WHERE id = $1", book_id)
+        if not book:
             raise HTTPException(404, "Book not found")
+        is_admin = user.get("is_admin") or user["id"] == 0
+        if not is_admin and book["owner_id"] not in (None, user["id"]):
+            raise HTTPException(403, "Only the owner or an admin can delete this book")
         await conn.execute("DELETE FROM pipeline_status WHERE book_id = $1", book_id)
         await conn.execute("DELETE FROM judge_memory WHERE book_id = $1", book_id)
         await conn.execute("DELETE FROM agent_interactions WHERE book_id = $1", book_id)

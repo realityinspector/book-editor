@@ -38,6 +38,29 @@ get_url() {
     fi
 }
 
+# Admin API key for write operations (upload/run/delete now require auth).
+# Reads $ACCESS_KEY, else .access-key file, else the Railway service variable.
+get_access_key() {
+    if [[ -n "${ACCESS_KEY:-}" ]]; then
+        echo "$ACCESS_KEY"
+    elif [[ -f .access-key ]]; then
+        cat .access-key
+    else
+        railway variables --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('ACCESS_KEY',''))" 2>/dev/null || echo ""
+    fi
+}
+
+# Echoes the Authorization header value for write endpoints; returns 1 if no key.
+auth_header() {
+    local key
+    key="$(get_access_key)"
+    if [[ -z "$key" ]]; then
+        err "No ACCESS_KEY found. Set ACCESS_KEY env var, create a .access-key file, or run 'railway link'."
+        return 1
+    fi
+    echo "Authorization: Bearer $key"
+}
+
 # ── Watch function (reused by pipeline commands) ──
 do_watch() {
     local BOOK_ID="$1"
@@ -207,16 +230,19 @@ if domain:
             exit 1
         fi
         URL="$(get_url)"
+        AUTH="$(auth_header)" || exit 1
         log "Uploading $EPUB_FILE..."
         curl -s -X POST "$URL/books/upload" \
+            -H "$AUTH" \
             -F "file=@$EPUB_FILE" | python3 -m json.tool
         ;;
 
     micro)
         BOOK_ID="${2:?Usage: $0 micro <book_id>}"
         URL="$(get_url)"
+        AUTH="$(auth_header)" || exit 1
         log "Starting micro-book dry run for book $BOOK_ID..."
-        RESULT=$(curl -s -X POST "$URL/books/$BOOK_ID/micro")
+        RESULT=$(curl -s -X POST "$URL/books/$BOOK_ID/micro" -H "$AUTH")
         echo "$RESULT" | python3 -m json.tool
         echo ""
         log "Auto-watching progress..."
@@ -227,8 +253,9 @@ if domain:
     full)
         BOOK_ID="${2:?Usage: $0 full <book_id>}"
         URL="$(get_url)"
+        AUTH="$(auth_header)" || exit 1
         log "Starting full pipeline for book $BOOK_ID..."
-        RESULT=$(curl -s -X POST "$URL/books/$BOOK_ID/full")
+        RESULT=$(curl -s -X POST "$URL/books/$BOOK_ID/full" -H "$AUTH")
         echo "$RESULT" | python3 -m json.tool
         echo ""
         log "Auto-watching progress..."
@@ -239,8 +266,9 @@ if domain:
     run-all)
         BOOK_ID="${2:?Usage: $0 run-all <book_id>}"
         URL="$(get_url)"
+        AUTH="$(auth_header)" || exit 1
         log "Starting full orchestration (micro + full) for book $BOOK_ID..."
-        RESULT=$(curl -s -X POST "$URL/books/$BOOK_ID/run-all")
+        RESULT=$(curl -s -X POST "$URL/books/$BOOK_ID/run-all" -H "$AUTH")
         echo "$RESULT" | python3 -m json.tool
         echo ""
         log "Auto-watching progress..."
@@ -263,8 +291,9 @@ if domain:
     delete)
         BOOK_ID="${2:?Usage: $0 delete <book_id>}"
         URL="$(get_url)"
+        AUTH="$(auth_header)" || exit 1
         log "Deleting book $BOOK_ID and all associated data..."
-        curl -s -X DELETE "$URL/books/$BOOK_ID" | python3 -m json.tool
+        curl -s -X DELETE "$URL/books/$BOOK_ID" -H "$AUTH" | python3 -m json.tool
         ;;
 
     book)
