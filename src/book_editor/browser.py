@@ -18,6 +18,23 @@ router = APIRouter()
 _tpl = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
+# Compatibility shim: this module calls TemplateResponse with the legacy
+# (name, context) signature. Starlette >=0.29 made `request` the first
+# positional argument, so the legacy form raises "unhashable type: 'dict'".
+# Wrap the method to translate old-style calls into the new signature.
+def _template_response_compat(name, context=None, *args, **kwargs):
+    if isinstance(name, str):
+        context = context or {}
+        request = context.get("request")
+        return Jinja2Templates.TemplateResponse(
+            _tpl, request, name, context, *args, **kwargs
+        )
+    return Jinja2Templates.TemplateResponse(_tpl, name, context, *args, **kwargs)
+
+
+_tpl.TemplateResponse = _template_response_compat
+
+
 # ── Password hashing ──
 
 def _hash_password(password: str) -> str:
