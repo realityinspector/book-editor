@@ -50,25 +50,32 @@
     }
     .rating-row {
         display: flex;
-        gap: 0.25rem;
+        gap: 0.4rem;
         margin-bottom: 0.5rem;
     }
     .rating-btn {
         font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
-        font-size: 0.68rem;
-        font-weight: 600;
+        font-size: 0.85rem;
+        font-weight: 700;
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: 7px;
         background: var(--surface);
-        padding: 0.25rem 0.5rem;
+        padding: 0.5rem 0;
         cursor: pointer;
-        transition: background 0.12s, border-color 0.12s;
+        transition: background 0.12s, border-color 0.12s, transform 0.08s, box-shadow 0.12s;
         color: var(--text);
-        min-width: 2rem;
+        flex: 1;
+        min-width: 2.4rem;
         text-align: center;
     }
-    .rating-btn:hover { border-color: var(--accent); }
-    .rating-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .rating-btn:hover { border-color: var(--accent); background: #f0f6ff; }
+    .rating-btn.active {
+        background: var(--accent);
+        color: #fff;
+        border-color: var(--accent);
+        transform: scale(1.08);
+        box-shadow: 0 0 0 2px rgba(0,122,255,0.25);
+    }
     .normie-row {
         display: flex;
         gap: 0.3rem;
@@ -206,6 +213,67 @@
         display: none;
     }
     .ann-summary .pill { font-size: 0.6rem; margin-left: 0.3rem; }
+    .ann-summary.clickable { cursor: pointer; }
+    .ann-summary.clickable:hover { color: var(--accent); text-decoration: underline; }
+
+    /* ── Confirm modal ── */
+    #confirm-overlay, #ann-list-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.35);
+        z-index: 1000;
+        align-items: center;
+        justify-content: center;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+    }
+    #confirm-box {
+        background: var(--surface);
+        border-radius: 12px;
+        padding: 1.2rem 1.3rem 1rem;
+        width: 320px;
+        max-width: calc(100vw - 2rem);
+        box-shadow: 0 8px 40px rgba(0,0,0,0.25);
+    }
+    #confirm-box p { font-size: 0.85rem; color: var(--text); margin-bottom: 1rem; line-height: 1.4; }
+    .confirm-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+    .confirm-actions button {
+        font-family: inherit; font-size: 0.78rem; font-weight: 600;
+        padding: 0.4rem 0.9rem; border-radius: 7px; cursor: pointer; border: 1px solid var(--border);
+    }
+    .confirm-actions .btn-cancel { background: var(--surface); color: var(--secondary); }
+    .confirm-actions .btn-cancel:hover { background: #f0f0f5; }
+    .confirm-actions .btn-danger { background: #dc2626; color: #fff; border-color: #dc2626; }
+    .confirm-actions .btn-danger:hover { background: #b91c1c; }
+
+    /* ── Annotation list panel ── */
+    #ann-list-panel {
+        background: var(--surface);
+        border-radius: 12px;
+        width: 460px;
+        max-width: calc(100vw - 2rem);
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 8px 40px rgba(0,0,0,0.25);
+        overflow: hidden;
+    }
+    .ann-list-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0.9rem 1.1rem; border-bottom: 1px solid var(--border); font-size: 0.95rem;
+    }
+    .ann-list-close { background: none; border: none; font-size: 1.4rem; line-height: 1; cursor: pointer; color: var(--secondary); }
+    #ann-list-body { overflow-y: auto; padding: 0.4rem 0; }
+    .ann-list-item {
+        padding: 0.7rem 1.1rem; border-bottom: 1px solid var(--border); cursor: pointer;
+        font-size: 0.8rem; transition: background 0.1s;
+    }
+    .ann-list-item:hover { background: #f6f8fb; }
+    .ann-list-item:last-child { border-bottom: none; }
+    .ann-list-item .ali-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.2rem; }
+    .ann-list-item .ali-author { font-weight: 600; }
+    .ann-list-item .ali-snippet { color: var(--secondary); font-style: italic; font-size: 0.72rem; }
+    .ann-list-item .ali-comment { color: var(--text); font-size: 0.75rem; margin-top: 0.15rem; }
 </style>
 {% endblock %}
 
@@ -221,7 +289,7 @@
     {% if draft.version > 0 %}<span class="pill version">V{{ draft.version }}</span>{% else %}<span class="pill version">Micro</span>{% endif %}
     <span class="pill words">{{ '{:,}'.format(word_count) }} words</span>
     <span class="pill">{{ '{:,}'.format(char_count) }} chars</span>
-    <span class="pill model">{{ model_used }}</span>
+    {% if is_owner %}<span class="pill model">{{ model_used }}</span>{% endif %}
     {% if avg_score is not none %}<span class="pill score">{{ avg_score }}/10 avg</span>{% endif %}
     {% if feedback %}<span class="pill">{{ feedback|length }} reviews</span>{% endif %}
     <span class="pill">{{ fmt_short(draft.created_at) }}</span>
@@ -290,8 +358,30 @@
     </div>
 </div>
 
-<!-- ── Audience Reviews ── -->
-{% if feedback_by_round %}
+<!-- ── Confirm modal (replaces native confirm so automation isn't blocked) ── -->
+<div id="confirm-overlay">
+    <div id="confirm-box">
+        <p id="confirm-message"></p>
+        <div class="confirm-actions">
+            <button class="btn-cancel" id="confirm-no">Cancel</button>
+            <button class="btn-danger" id="confirm-yes">Delete</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── All-annotations list panel (opened from the summary counter) ── -->
+<div id="ann-list-overlay">
+    <div id="ann-list-panel">
+        <div class="ann-list-header">
+            <strong>Annotations</strong>
+            <button class="ann-list-close" id="ann-list-close">&times;</button>
+        </div>
+        <div id="ann-list-body"></div>
+    </div>
+</div>
+
+<!-- ── Audience Reviews (internal editorial detail — owner/admin only) ── -->
+{% if feedback_by_round and is_owner %}
 <hr class="divider">
 <div class="section-label">Audience Reviews</div>
 
@@ -537,6 +627,74 @@ async function loadAnnotations() {
     renderHighlights();
 }
 
+// ── In-page confirm modal (promise-based; replaces window.confirm) ──
+function confirmModal(message) {
+    return new Promise((resolve) => {
+        const overlay = document.getElementById('confirm-overlay');
+        document.getElementById('confirm-message').textContent = message;
+        overlay.style.display = 'flex';
+        const yes = document.getElementById('confirm-yes');
+        const no = document.getElementById('confirm-no');
+        function cleanup(result) {
+            overlay.style.display = 'none';
+            yes.removeEventListener('click', onYes);
+            no.removeEventListener('click', onNo);
+            overlay.removeEventListener('click', onBackdrop);
+            resolve(result);
+        }
+        function onYes() { cleanup(true); }
+        function onNo() { cleanup(false); }
+        function onBackdrop(e) { if (e.target === overlay) cleanup(false); }
+        yes.addEventListener('click', onYes);
+        no.addEventListener('click', onNo);
+        overlay.addEventListener('click', onBackdrop);
+    });
+}
+
+// ── All-annotations list panel ──
+function authorLabel(ann) {
+    return ann.display_name || ann.username || ann.author_name || 'anonymous';
+}
+function openAnnotationList() {
+    const body = document.getElementById('ann-list-body');
+    if (!annotations.length) { body.innerHTML = '<div class="ann-list-item">No annotations yet.</div>'; }
+    else {
+        const sorted = [...annotations].sort((a, b) => b.rating - a.rating);
+        body.innerHTML = sorted.map(ann => {
+            const sign = ann.rating >= 0 ? '+' : '';
+            const snippet = (ann.selected_text || '').substring(0, 90);
+            const comment = ann.comment ? '<div class="ali-comment">' + escapeHtml(ann.comment) + '</div>' : '';
+            return '<div class="ann-list-item" data-ann-id="' + ann.id + '">' +
+                '<div class="ali-top"><span class="ali-author">' + escapeHtml(authorLabel(ann)) + '</span>' +
+                '<span class="detail-rating pill">' + sign + ann.rating + '</span></div>' +
+                '<div class="ali-snippet">"' + escapeHtml(snippet) + '"</div>' + comment + '</div>';
+        }).join('');
+        body.querySelectorAll('.ann-list-item[data-ann-id]').forEach(item => {
+            item.addEventListener('click', () => {
+                closeAnnotationList();
+                const annId = parseInt(item.dataset.annId);
+                const mark = el.querySelector('mark.hl[data-ann-id="' + annId + '"]');
+                if (mark) {
+                    mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    setTimeout(() => mark.click(), 350);
+                }
+            });
+        });
+    }
+    document.getElementById('ann-list-overlay').style.display = 'flex';
+}
+function closeAnnotationList() {
+    document.getElementById('ann-list-overlay').style.display = 'none';
+}
+function escapeHtml(s) {
+    return (s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+document.getElementById('ann-summary').addEventListener('click', openAnnotationList);
+document.getElementById('ann-list-close').addEventListener('click', closeAnnotationList);
+document.getElementById('ann-list-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeAnnotationList();
+});
+
 function rateClass(r) {
     if (r <= -2) return 'rate-neg2';
     if (r === -1) return 'rate-neg1';
@@ -560,11 +718,13 @@ function renderHighlights() {
         return;
     }
 
-    // Update summary bar
+    // Update summary bar (clickable → opens the full annotation list)
     const avg = annotations.reduce((s, a) => s + a.rating, 0) / annotations.length;
     const summaryEl = document.getElementById('ann-summary');
     summaryEl.innerHTML = annotations.length + ' annotation' + (annotations.length !== 1 ? 's' : '') +
-        '<span class="pill">' + avg.toFixed(1) + ' avg</span>';
+        '<span class="pill">' + avg.toFixed(1) + ' avg</span>' +
+        '<span style="margin-left:0.4rem;font-size:0.62rem;">view all &rsaquo;</span>';
+    summaryEl.classList.add('clickable');
     summaryEl.style.display = 'block';
 
     // Find and wrap each annotation's text
@@ -695,7 +855,7 @@ el.addEventListener('click', function(e) {
 // Delete annotation
 document.getElementById('detail-delete').addEventListener('click', async function() {
     if (!activeDetailId) return;
-    if (!confirm('Delete this annotation? This cannot be undone.')) return;
+    if (!(await confirmModal('Delete this annotation? This cannot be undone.'))) return;
     const resp = await fetch('/api/annotations/' + activeDetailId, { method: 'DELETE' });
     if (!resp.ok) { alert('Failed to delete'); return; }
     annotations = annotations.filter(a => a.id !== activeDetailId);

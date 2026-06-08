@@ -558,11 +558,17 @@ async def draft_reader(request: Request, draft_id: int):
         or user["id"] == 0
         or (book["owner_id"] is not None and book["owner_id"] == user["id"])
     )
+    # Owner/admin (lenient: legacy NULL-owner books are owned by any logged-in
+    # user) — controls visibility of internal process detail (models, reviews).
+    is_owner = bool(user) and (
+        book["owner_id"] is None or book["owner_id"] == user["id"] or user.get("is_admin")
+    )
 
     return _tpl.TemplateResponse("reader.html", {
         "request": request,
         "user": user,
         "can_moderate": can_moderate,
+        "is_owner": is_owner,
         "draft": draft_dict,
         "book": dict(book),
         "feedback": feedback,
@@ -587,13 +593,17 @@ async def interaction_log(request: Request, book_id: int):
 
     pool = await db.get_pool()
     async with pool.acquire() as conn:
-        if not await _user_can_access_book(conn, user, book_id):
-            return HTMLResponse("<h1>Not found</h1>", status_code=404)
-
         book = await conn.fetchrow(
-            "SELECT id, title, author FROM books WHERE id = $1", book_id
+            "SELECT id, title, author, owner_id FROM books WHERE id = $1", book_id
         )
         if not book:
+            return HTMLResponse("<h1>Not found</h1>", status_code=404)
+
+        # The agent interaction log is internal process detail — owner/admin only.
+        is_owner = bool(user) and (
+            book["owner_id"] is None or book["owner_id"] == user["id"] or user.get("is_admin")
+        )
+        if not is_owner:
             return HTMLResponse("<h1>Not found</h1>", status_code=404)
 
         interactions = await conn.fetch("""
