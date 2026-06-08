@@ -340,6 +340,8 @@ const DRAFT_ID = {{ draft.id }};
 const raw = {{ draft.full_text | tojson }};
 const el = document.getElementById('draft-content');
 const ALL_USERS = {{ all_users | tojson }};
+const CURRENT_USER = {{ user | tojson }};
+const CAN_MODERATE = {{ can_moderate | tojson }};
 
 if (raw && raw.trim()) {
     marked.setOptions({ breaks: false, gfm: true });
@@ -363,7 +365,13 @@ const detail = document.getElementById('ann-detail');
 const commentBox = document.getElementById('ann-comment');
 const mentionDropdown = document.getElementById('mention-dropdown');
 
+// @mentions only resolve for logged-in users; don't dangle the hint/dropdown otherwise.
+if (!CURRENT_USER) {
+    commentBox.placeholder = 'Comment (optional)';
+}
+
 commentBox.addEventListener('input', function() {
+    if (!CURRENT_USER) return;
     const val = this.value;
     const cursor = this.selectionStart;
     // Find @ before cursor
@@ -508,7 +516,13 @@ document.getElementById('ann-save').addEventListener('click', async function() {
     if (!resp.ok) { alert('Failed to save'); return; }
     const result = await resp.json();
 
-    annotations.push({ ...body, id: result.id, draft_id: DRAFT_ID, created_at: result.created_at });
+    annotations.push({
+        ...body, id: result.id, draft_id: DRAFT_ID, created_at: result.created_at,
+        user_id: CURRENT_USER ? CURRENT_USER.id : null,
+        username: CURRENT_USER ? CURRENT_USER.username : null,
+        display_name: CURRENT_USER ? CURRENT_USER.display_name : null,
+        author_name: CURRENT_USER ? (CURRENT_USER.display_name || CURRENT_USER.username) : 'anonymous',
+    });
     popup.style.display = 'none';
     pendingSelection = null;
     window.getSelection().removeAllRanges();
@@ -666,6 +680,11 @@ el.addEventListener('click', function(e) {
     document.getElementById('detail-comment').style.display = ann.comment ? 'block' : 'none';
     document.getElementById('detail-snippet').textContent = '"' + (ann.selected_text || '').substring(0, 100) + '"';
 
+    // Only show Delete when this viewer is allowed to remove this annotation:
+    // an admin/book owner (CAN_MODERATE) or the annotation's own author.
+    const canDelete = CAN_MODERATE || (CURRENT_USER && ann.user_id != null && ann.user_id === CURRENT_USER.id);
+    document.getElementById('detail-delete').style.display = canDelete ? '' : 'none';
+
     const rect = mark.getBoundingClientRect();
     detail.style.top = (rect.bottom + window.scrollY + 6) + 'px';
     detail.style.left = Math.max(8, Math.min(rect.left + window.scrollX, window.innerWidth - 320)) + 'px';
@@ -676,6 +695,7 @@ el.addEventListener('click', function(e) {
 // Delete annotation
 document.getElementById('detail-delete').addEventListener('click', async function() {
     if (!activeDetailId) return;
+    if (!confirm('Delete this annotation? This cannot be undone.')) return;
     const resp = await fetch('/api/annotations/' + activeDetailId, { method: 'DELETE' });
     if (!resp.ok) { alert('Failed to delete'); return; }
     annotations = annotations.filter(a => a.id !== activeDetailId);

@@ -498,7 +498,7 @@ async def draft_reader(request: Request, draft_id: int):
             return HTMLResponse("<h1>Not found</h1>", status_code=404)
 
         book = await conn.fetchrow(
-            "SELECT id, title, author FROM books WHERE id = $1", draft["book_id"]
+            "SELECT id, title, author, owner_id FROM books WHERE id = $1", draft["book_id"]
         )
 
         feedback_raw = await conn.fetch("""
@@ -552,9 +552,17 @@ async def draft_reader(request: Request, draft_id: int):
     all_scores = [f["overall_score"] for f in feedback if f.get("overall_score") is not None]
     avg_score = round(sum(all_scores) / len(all_scores), 1) if all_scores else None
 
+    # Can this viewer moderate (delete anyone's) annotations on this book?
+    can_moderate = bool(user) and (
+        user.get("is_admin")
+        or user["id"] == 0
+        or (book["owner_id"] is not None and book["owner_id"] == user["id"])
+    )
+
     return _tpl.TemplateResponse("reader.html", {
         "request": request,
         "user": user,
+        "can_moderate": can_moderate,
         "draft": draft_dict,
         "book": dict(book),
         "feedback": feedback,
@@ -796,9 +804,28 @@ async def delete_annotation(request: Request, annotation_id: int):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     pool = await db.get_pool()
     async with pool.acquire() as conn:
-        # Only annotation owner or admin can delete
-        ann = await conn.fetchrow("SELECT user_id FROM annotations WHERE id = $1", annotation_id)
-        if ann and ann["user_id"] and user["id"] > 0 and ann["user_id"] != user["id"] and not user.get("is_admin"):
-            return JSONResponse({"error": "can only delete your own annotations"}, status_code=403)
+        ann = await conn.fetchrow(
+            """SELECT a.user_id, d.book_id
+               FROM annotations a JOIN book_drafts d ON d.id = a.draft_id
+               WHERE a.id = $1""",
+            annotation_id,
+        )
+        if not ann:
+            return JSONResponse({"error": "not found"}, status_code=404)
+
+        # Who may delete: an admin, the annotation's own author, or the book's
+        # owner (moderation). Anonymous annotations (user_id IS NULL) have no
+        # author, so only an admin or the book owner can remove them — a random
+        # logged-in visitor cannot.
+        book = await conn.fetchrow("SELECT owner_id FROM books WHERE id = $1", ann["book_id"])
+        is_admin = bool(user.get("is_admin")) or user["id"] == 0
+        is_author = ann["user_id"] is not None and ann["user_id"] == user["id"]
+        is_book_owner = (
+            bool(book) and book["owner_id"] is not None and book["owner_id"] == user["id"]
+        )
+        if not (is_admin or is_author or is_book_owner):
+            return JSONResponse(
+                {"error": "you can only delete your own annotations"}, status_code=403
+            )
         await conn.execute("DELETE FROM annotations WHERE id = $1", annotation_id)
     return JSONResponse({"ok": True})
