@@ -36,6 +36,8 @@
         padding: 0.9rem 1rem;
         box-shadow: 0 4px 20px rgba(0,0,0,0.12);
         width: 320px;
+        max-width: calc(100vw - 16px);
+        box-sizing: border-box;
         font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
         font-size: 0.78rem;
     }
@@ -147,6 +149,8 @@
         padding: 0.9rem 1rem;
         box-shadow: 0 4px 20px rgba(0,0,0,0.12);
         width: 300px;
+        max-width: calc(100vw - 16px);
+        box-sizing: border-box;
         font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
         font-size: 0.78rem;
     }
@@ -526,13 +530,6 @@ el.addEventListener('mouseup', function(e) {
 
         pendingSelection = { text, prefix, suffix };
 
-        // Position popup below selection
-        const rect = range.getBoundingClientRect();
-        const scrollY = window.scrollY;
-        const scrollX = window.scrollX;
-        popup.style.top = (rect.bottom + scrollY + 8) + 'px';
-        popup.style.left = Math.max(8, Math.min(rect.left + scrollX, window.innerWidth - 340)) + 'px';
-
         // Reset form
         document.getElementById('ann-sel-preview').textContent = '"' + text.substring(0, 120) + (text.length > 120 ? '...' : '') + '"';
         currentRating = 0;
@@ -543,10 +540,34 @@ el.addEventListener('mouseup', function(e) {
         document.getElementById('ann-bad-normie').classList.remove('active-bad');
         document.getElementById('ann-comment').value = '';
 
-        popup.style.display = 'block';
+        // Show first so we can measure its real (responsive) size, then clamp
+        // it fully inside the viewport — critical on narrow/mobile screens.
         detail.style.display = 'none';
+        popup.style.display = 'block';
+        positionWithinViewport(popup, range.getBoundingClientRect());
+        popup.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, 10);
 });
+
+// Place an absolutely-positioned element near an anchor rect but always fully
+// on-screen: clamp horizontally to the viewport, and flip above the anchor if
+// it would overflow the bottom.
+function positionWithinViewport(node, anchorRect) {
+    const w = node.offsetWidth;
+    const h = node.offsetHeight;
+    const margin = 8;
+    let left = anchorRect.left + window.scrollX;
+    const maxLeft = window.scrollX + window.innerWidth - w - margin;
+    const minLeft = window.scrollX + margin;
+    left = Math.max(minLeft, Math.min(left, maxLeft));
+
+    let top = anchorRect.bottom + window.scrollY + margin;
+    if (anchorRect.bottom + h + margin > window.innerHeight && anchorRect.top - h - margin > 0) {
+        top = anchorRect.top + window.scrollY - h - margin;  // flip above
+    }
+    node.style.left = left + 'px';
+    node.style.top = top + 'px';
+}
 
 // Close popup/detail on outside click
 document.addEventListener('mousedown', function(e) {
@@ -845,23 +866,33 @@ el.addEventListener('click', function(e) {
     const canDelete = CAN_MODERATE || (CURRENT_USER && ann.user_id != null && ann.user_id === CURRENT_USER.id);
     document.getElementById('detail-delete').style.display = canDelete ? '' : 'none';
 
-    const rect = mark.getBoundingClientRect();
-    detail.style.top = (rect.bottom + window.scrollY + 6) + 'px';
-    detail.style.left = Math.max(8, Math.min(rect.left + window.scrollX, window.innerWidth - 320)) + 'px';
-    detail.style.display = 'block';
     popup.style.display = 'none';
+    detail.style.display = 'block';
+    positionWithinViewport(detail, mark.getBoundingClientRect());
+    detail.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 });
 
 // Delete annotation
 document.getElementById('detail-delete').addEventListener('click', async function() {
-    if (!activeDetailId) return;
+    // Capture the id synchronously — it must not change while the modal is open.
+    const id = activeDetailId;
+    if (!id) return;
     if (!(await confirmModal('Delete this annotation? This cannot be undone.'))) return;
-    const resp = await fetch('/api/annotations/' + activeDetailId, { method: 'DELETE' });
-    if (!resp.ok) { alert('Failed to delete'); return; }
-    annotations = annotations.filter(a => a.id !== activeDetailId);
+    let resp;
+    try {
+        resp = await fetch('/api/annotations/' + id, { method: 'DELETE' });
+    } catch (e) {
+        resp = null;
+    }
+    if (!resp || !resp.ok) {
+        alert('Could not delete this annotation. Please try again.');
+        return;
+    }
     detail.style.display = 'none';
     activeDetailId = null;
-    renderHighlights();
+    // Resync from the server rather than optimistically removing locally, so the
+    // on-screen highlights always reflect what's actually persisted.
+    await loadAnnotations();
 });
 
 // Load on page ready
