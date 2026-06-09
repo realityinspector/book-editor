@@ -289,7 +289,7 @@
     {% if draft.version > 0 %}<span class="pill version">V{{ draft.version }}</span>{% else %}<span class="pill version">Micro</span>{% endif %}
     <span class="pill words">{{ '{:,}'.format(word_count) }} words</span>
     <span class="pill">{{ '{:,}'.format(char_count) }} chars</span>
-    {% if is_owner %}<span class="pill model">{{ model_used }}</span>{% endif %}
+    {% if can_moderate %}<span class="pill model">{{ model_used }}</span>{% endif %}
     {% if avg_score is not none %}<span class="pill score">{{ avg_score }}/10 avg</span>{% endif %}
     {% if feedback %}<span class="pill">{{ feedback|length }} reviews</span>{% endif %}
     <span class="pill">{{ fmt_short(draft.created_at) }}</span>
@@ -381,7 +381,7 @@
 </div>
 
 <!-- ── Audience Reviews (internal editorial detail — owner/admin only) ── -->
-{% if feedback_by_round and is_owner %}
+{% if feedback_by_round and can_moderate %}
 <hr class="divider">
 <div class="section-label">Audience Reviews</div>
 

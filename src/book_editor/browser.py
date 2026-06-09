@@ -458,6 +458,14 @@ async def book_detail(request: Request, book_id: int):
     }
 
     is_owner = bool(user) and (book["owner_id"] is None or book["owner_id"] == user["id"] or user.get("is_admin"))
+    # Internal process detail (pipeline, models, source, agent log, reviews) is
+    # restricted to an admin or the book's actual owner — stricter than is_owner,
+    # which on a legacy NULL-owner public book would include any logged-in reader.
+    show_internals = bool(user) and (
+        user.get("is_admin")
+        or user["id"] == 0
+        or (book["owner_id"] is not None and book["owner_id"] == user["id"])
+    )
 
     return _tpl.TemplateResponse("book.html", {
         "request": request,
@@ -473,6 +481,7 @@ async def book_detail(request: Request, book_id: int):
         "total_words": total_words,
         "models": models,
         "is_owner": is_owner,
+        "show_internals": show_internals,
         "can_write": can_write,
         "shares": [dict(s) for s in shares],
         "all_users": [dict(u) for u in all_users],
@@ -558,17 +567,10 @@ async def draft_reader(request: Request, draft_id: int):
         or user["id"] == 0
         or (book["owner_id"] is not None and book["owner_id"] == user["id"])
     )
-    # Owner/admin (lenient: legacy NULL-owner books are owned by any logged-in
-    # user) — controls visibility of internal process detail (models, reviews).
-    is_owner = bool(user) and (
-        book["owner_id"] is None or book["owner_id"] == user["id"] or user.get("is_admin")
-    )
-
     return _tpl.TemplateResponse("reader.html", {
         "request": request,
         "user": user,
         "can_moderate": can_moderate,
-        "is_owner": is_owner,
         "draft": draft_dict,
         "book": dict(book),
         "feedback": feedback,
@@ -599,11 +601,14 @@ async def interaction_log(request: Request, book_id: int):
         if not book:
             return HTMLResponse("<h1>Not found</h1>", status_code=404)
 
-        # The agent interaction log is internal process detail — owner/admin only.
-        is_owner = bool(user) and (
-            book["owner_id"] is None or book["owner_id"] == user["id"] or user.get("is_admin")
+        # The agent interaction log is internal process detail — restricted to an
+        # admin or the book's actual owner (not every logged-in reader).
+        show_internals = bool(user) and (
+            user.get("is_admin")
+            or user["id"] == 0
+            or (book["owner_id"] is not None and book["owner_id"] == user["id"])
         )
-        if not is_owner:
+        if not show_internals:
             return HTMLResponse("<h1>Not found</h1>", status_code=404)
 
         interactions = await conn.fetch("""

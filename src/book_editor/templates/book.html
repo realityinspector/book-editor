@@ -14,7 +14,7 @@
 <div class="pills">
     <span class="pill">{{ book.total_chapters }} chapters</span>
     <span class="pill words">{{ '{:,}'.format(total_words) }} words</span>
-    {% if is_owner %}<span class="pill status-{{ pipeline_stage }}">{{ pipeline_stage }}</span>{% endif %}
+    {% if show_internals %}<span class="pill status-{{ pipeline_stage }}">{{ pipeline_stage }}</span>{% endif %}
     <span class="pill">{{ fmt_short(book.created_at) }}</span>
 </div>
 
@@ -34,7 +34,7 @@
             {% if d.review_count > 0 %}
             <span class="pill">{{ d.review_count }} reviews</span>
             {% endif %}
-            {% if is_owner %}<span class="pill model">{{ models.editor }}</span>{% endif %}
+            {% if show_internals %}<span class="pill model">{{ models.editor }}</span>{% endif %}
         </div>
         <p class="card-sub">{{ fmt_short(d.created_at) }}{% if d.assembly_notes %} · {{ d.assembly_notes }}{% endif %}</p>
     </div>
@@ -51,7 +51,7 @@
         <h3>Micro Book</h3>
         <div class="pills" style="margin: 0.35rem 0 0.15rem;">
             <span class="pill words">~{{ '{:,}'.format(m.approx_words) }} words</span>
-            {% if is_owner %}<span class="pill model">{{ models.micro }}</span>{% endif %}
+            {% if show_internals %}<span class="pill model">{{ models.micro }}</span>{% endif %}
         </div>
         <p class="card-sub">{{ fmt_short(m.created_at) }} · Children's-book-level summary</p>
     </div>
@@ -114,7 +114,7 @@
 {% endif %}
 
 <!-- ── Internal / process detail — owner & admin only ── -->
-{% if is_owner %}
+{% if show_internals %}
 
 <!-- ── Pipeline Detail (collapsed) ── -->
 {% if pipelines %}
@@ -189,7 +189,7 @@
 </div>
 
 {% endif %}
-{# end is_owner internal/process detail #}
+{# end show_internals internal/process detail #}
 
 {% endblock %}
 
