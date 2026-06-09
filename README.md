@@ -2,6 +2,8 @@
 
 AI-powered multi-agent book revision pipeline. Upload an `.epub`, and a swarm of distributed AI agents will read, debate, revise, reorder, and reassemble your book into three variant editions — then an audience panel reviews each one.
 
+It also ships a **public reading & annotation web UI** at `/browse` where anyone can read the resulting drafts and leave inline annotations — no account required. See [Reading & Annotation Web UI](#reading--annotation-web-ui).
+
 **Only requires two environment variables:** `DATABASE_URL` and `OPENROUTER_API_KEY`
 
 ## Quick Start (Using Claude Code as Your Local Agent)
@@ -238,23 +240,73 @@ railway vars --set 'EDITOR_MODEL=google/gemini-2.5-pro'
 railway vars --set 'WORKER_MODEL=google/gemini-2.0-flash-001'
 ```
 
+## Reading & Annotation Web UI
+
+Beyond the pipeline API, the app serves a browser-facing reader at **`/browse`**. Open the
+Railway URL in a browser (it redirects `/` → `/browse`).
+
+**What readers can do without an account (anonymous):**
+- Browse the library and open any book and draft variant.
+- Read the full draft text.
+- **Annotate**: select text, give it a rating (−2…+3), tag it "good/bad for normies", and
+  leave a comment. Anonymous annotations are saved as author `"anonymous"`.
+- Browse all annotations on a draft via the clickable summary counter.
+
+**What requires logging in (`/register`, `/login`):**
+- Annotations are attributed to your name.
+- `@mention` other users in comments.
+- Deleting annotations: you can delete **your own**; admins and the book's owner can
+  moderate any.
+
+**Owner/admin only** (hidden from anonymous *and* ordinary logged-in readers):
+- Internal process detail — pipeline status, model names, source-chapter list, the agent
+  interaction log (`/browse/book/{id}/log`), audience reviews — and the Sharing controls.
+
+This makes the app safe to share publicly for one book: visitors read and give feedback,
+while the editorial/process internals stay private to you.
+
+> **Note on the production book:** `EMERGENT` (book id 2) has no owner (`owner_id NULL`),
+> which keeps it publicly readable. See `CLAUDE.md` for the ownership/visibility invariants
+> before changing this.
+
 ## API Reference
 
 All endpoints are available at your Railway URL. Swap in `http://localhost:8000` for local dev.
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | Health check |
-| `POST` | `/books/upload` | Upload `.epub` (multipart form, field: `file`) |
-| `GET` | `/books/{id}` | Book metadata + chapter list |
-| `POST` | `/books/{id}/micro` | Start micro-book dry run |
-| `POST` | `/books/{id}/full` | Start full editing pipeline |
-| `POST` | `/books/{id}/run-all?skip_micro=false` | Run micro then full |
-| `GET` | `/books/{id}/status` | Pipeline progress |
-| `GET` | `/books/{id}/drafts` | List assembled drafts |
-| `GET` | `/drafts/{id}` | Get draft text + audience feedback |
-| `GET` | `/books/{id}/interactions?limit=50` | Agent conversation log |
-| `GET` | `/books/{id}/judge-memory` | Judge's accumulated editorial memory |
+**Auth:** write/admin endpoints require either a logged-in session cookie or an
+`Authorization: Bearer <ACCESS_KEY>` header (the shared `ACCESS_KEY` is treated as admin).
+`author-tool-helper.sh` attaches this automatically. Read endpoints are public.
+
+### Pipeline / book API (`main.py`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/health` | — | Health check |
+| `POST` | `/books/upload` | ✅ | Upload `.epub` (multipart form, field: `file`) |
+| `GET` | `/books/{id}` | — | Book metadata + chapter list |
+| `POST` | `/books/{id}/micro` | ✅ | Start micro-book dry run |
+| `POST` | `/books/{id}/full` | ✅ | Start full editing pipeline |
+| `POST` | `/books/{id}/run-all?skip_micro=false` | ✅ | Run micro then full |
+| `DELETE` | `/books/{id}` | ✅ | Delete a book (admin or owner) |
+| `GET` | `/books/{id}/status` | — | Pipeline progress |
+| `GET` | `/books/{id}/drafts` | — | List assembled drafts |
+| `GET` | `/drafts/{id}` | — | Get draft text + audience feedback |
+| `GET` | `/books/{id}/interactions?limit=50` | — | Agent conversation log |
+| `GET` | `/books/{id}/judge-memory` | — | Judge's accumulated editorial memory |
+
+### Reader / annotation web routes (`browser.py`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/browse` | — | Library (also `/` redirects here) |
+| `GET` | `/browse/book/{id}` | — | Book page (internals shown to owner/admin only) |
+| `GET` | `/browse/draft/{id}` | — | Draft reader + annotations |
+| `GET` | `/browse/book/{id}/log` | owner/admin | Agent interaction log (404 otherwise) |
+| `GET`/`POST` | `/login`, `/register`, `/logout`, `/auth` | — | Session auth |
+| `GET` | `/api/drafts/{id}/annotations` | — | List annotations on a draft |
+| `POST` | `/api/drafts/{id}/annotations` | — | Create an annotation (anon allowed) |
+| `DELETE` | `/api/annotations/{id}` | author/owner/admin | Delete an annotation |
+| `POST` | `/api/books/{id}/share` | owner/admin | Share a book with another user |
 
 ## `author-tool-helper.sh` Commands
 
@@ -287,6 +339,19 @@ ADMIN:
   ./author-tool-helper.sh db             PostgreSQL shell (Railway)
   ./author-tool-helper.sh ssh            Shell into Railway container
   ./author-tool-helper.sh env [KEY=VAL]  View/set Railway env vars
+```
+
+### Cleaning up test data
+
+QA / browser-testing creates real accounts and annotations in the database. Remove them
+with `clean-test-data.sh` (connects via `railway connect Postgres`; admin accounts are
+always preserved):
+
+```bash
+./clean-test-data.sh                        # dry run — shows what would be deleted
+./clean-test-data.sh --yes                   # delete non-admin (test) accounts + their data
+./clean-test-data.sh --yes --include-anon    # also clear anonymous annotations
+KEEP_USERS="alice,bob" ./clean-test-data.sh --yes   # preserve named non-admins
 ```
 
 ## Cost Estimates
@@ -327,8 +392,12 @@ pytest tests/ -x --tb=short
 ~/slices/book-editor/
 ├── agent_system_prompts.json    ← All agent prompts (edit this!)
 ├── author-tool-helper.sh        ← Local CLI for everything
+├── clean-test-data.sh           ← Remove QA/test accounts & annotations
+├── CLAUDE.md                    ← Project guidance (auth model, deploy, gotchas)
 ├── src/book_editor/
-│   ├── main.py                  ← FastAPI app
+│   ├── main.py                  ← FastAPI app + pipeline/book API
+│   ├── browser.py               ← Reader & annotation web UI + auth/session
+│   ├── templates/               ← Jinja2 templates (browse, reader, book, auth)
 │   ├── config.py                ← Settings (2 env vars)
 │   ├── db.py                    ← PostgreSQL schema
 │   ├── epub_parser.py           ← EPUB → markdown chapters
