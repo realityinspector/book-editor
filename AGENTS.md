@@ -4,6 +4,10 @@
 
 Multi-agent book revision pipeline. Ingests an .epub, uses distributed AI agents via OpenRouter to debate, revise, and reassemble the book into three variant editions reviewed by an audience panel.
 
+> This file documents the **AI agent pipeline**. The app also serves a public reading &
+> annotation web UI (`/browse`) and an optional-auth access model — see `README.md`
+> ("Reading & Annotation Web UI") and `CLAUDE.md` (auth/ownership invariants, deploy, gotchas).
+
 ## Agent Hierarchy
 
 ```
